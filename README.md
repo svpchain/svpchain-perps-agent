@@ -37,7 +37,26 @@ go run ./cmd/svpchain-perps-agent -config cmd/svpchain-perps-agent/agent.toml
 ```
 
 Inspect without touching anything: `--print-config`, `--print-compose`,
-`--dry-run`. Tear down with `--uninstall`.
+`--print-nginx`, `--dry-run`. Tear down with `--uninstall`.
+
+## Behind the reverse proxy
+
+The agents share one host, each on its own path: this one answers at
+`<base>/perps` and listens on `127.0.0.1:8082`. Print its location block:
+
+```sh
+./scripts/deploy.sh --public-url https://agents.svpchain.org --print-nginx
+```
+
+Nothing installs it. The server block it belongs in owns TLS and the base
+host, both shared with agents this repo must not know about — so paste it,
+then `nginx -t && systemctl reload nginx`.
+
+The route is not cosmetic. `public_url` is advertised inside the Agent Card,
+and a verifier fetches that URL to recompute the capability hash; if nginx
+does not route `/perps` to this port the agent advertises a URL that 404s and
+reads as unverified, with every process healthy and nothing in the logs.
+`TestDeployScriptNginxRouteMatchesConfig` pins the two together.
 
 ## The operator key
 
