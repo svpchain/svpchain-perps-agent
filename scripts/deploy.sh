@@ -180,20 +180,14 @@ KNOWN_AGENTS=("${AGENTS[@]}")
 # must run on the macOS system bash 3.2, which predates `declare -A`.
 agent_port() {
   case "$1" in
-    svpchain-research-agent) echo 8081 ;;
-    svpchain-perps-agent)    echo 8082 ;;
-    svpchain-evm-agent)      echo 8083 ;;
-    svpchain-lending-agent)  echo 8084 ;;
-    *)                       echo "$listen_port" ;;
+    svpchain-perps-agent) echo 8082 ;;
+    *) echo "$listen_port" ;;
   esac
 }
 agent_keyname() {
   case "$1" in
-    svpchain-research-agent) echo research ;;
-    svpchain-perps-agent)    echo perps ;;
-    svpchain-evm-agent)      echo evm ;;
-    svpchain-lending-agent)  echo lending ;;
-    *)                       echo "$1" ;;
+    svpchain-perps-agent) echo perps ;;
+    *) echo "$1" ;;
   esac
 }
 
