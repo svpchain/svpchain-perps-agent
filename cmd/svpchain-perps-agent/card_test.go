@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,11 @@ import (
 // The golden was carried over from the monorepo unchanged, which is what proves
 // the split moved this agent without disturbing its on-chain identity. A
 // deliberate change here is fine; it just has to be deliberate, and followed by
-// agent_self_update on every deployment.
+// agent_self_update on every deployment. Re-record one with:
+//
+//	go test ./cmd/... -run TestCardMatchesGolden -update-goldens
+var updateGoldens = flag.Bool("update-goldens", false, "rewrite the card golden")
+
 func TestCardMatchesGolden(t *testing.T) {
 	reg := toolbridge.NewEmpty()
 	wire.PerpsProfile.Register(reg, &tools.Handlers{}, agentchain.New(nil, nil, nil, nil, nil, nil, nil), nil)
@@ -33,7 +38,16 @@ func TestCardMatchesGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want, err := os.ReadFile(filepath.Join("testdata", "card.json"))
+	path := filepath.Join("testdata", "card.json")
+	if *updateGoldens {
+		if err := os.WriteFile(path, append(got, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s", path)
+		return
+	}
+
+	want, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
