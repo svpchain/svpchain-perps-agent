@@ -3,7 +3,7 @@ module github.com/svpchain/svpchain-perps-agent
 go 1.25.0
 
 require (
-	github.com/svpchain/svpchain-agent-core v0.1.0
+	github.com/svpchain/svpchain-agent-core v0.2.0
 	github.com/svpchain/svpchain-mcp v0.1.0
 )
 
@@ -307,10 +307,6 @@ require (
 	pgregory.net/rapid v1.2.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-// Until svpchain-agent-core is published, resolve it from the sibling
-// checkout. Drop this line once the module is pushed and tagged.
-replace github.com/svpchain/svpchain-agent-core => ../svpchain-dex-agent
 
 // These agents consume the chain's generated x/*/types (agent, agentwallet,
 // clob) from a sibling checkout. x/agent + x/agentwallet currently live on the
