@@ -1,0 +1,40 @@
+# svpchain-perps-agent configuration.
+#
+# The perps binary shares the full agent's schema (internal/config); families
+# it does not register — EVM DeFi, Lendora — are simply ignored if configured.
+# Use a DISTINCT operator key per binary: the agent id derives from the key
+# and self-registration hashes this binary's own card.
+
+listen_addr = ":8082"
+# How callers reach this agent; advertised in the Agent Card.
+public_url  = "http://localhost:8082"
+
+[dex_chain]
+id               = "svpchain-testnet-1"
+grpc_addr        = "127.0.0.1:9090"
+comet_rpc_url    = "http://127.0.0.1:26657"
+indexer_base_url = "http://127.0.0.1:3002"
+
+# Optional: run the agent-identity families (x/agent, x/agentwallet, delegated
+# execution) against a separate agent chain over its Cosmos REST API.
+#[agent_chain]
+#id       = "svpagent-testnet-1"
+#rest_url = "http://127.0.0.1:1317"
+
+# Optional testnet faucet backend; unset, the faucet tools refuse.
+#faucet_base_url = "http://127.0.0.1:8088"
+
+# Caps on funds movements, in human USDC. Zero disables a check.
+[limits]
+deposit_max_usdc        = 1000
+withdraw_max_usdc       = 1000
+transfer_max_usdc       = 1000
+daily_withdraw_cap_usdc = 5000
+
+# Operator key for delegated perps execution and on-chain self-registration.
+# Optional: without it the svpchain-execution skill refuses with a reason.
+# The SVPCHAIN_AGENT_OPERATOR_KEY env var takes precedence over key_file.
+#[operator]
+#key_file     = "operator.key"
+#capabilities = ["perps.execution", "perps.trading"]
+#metadata     = "svpchain perps trading agent"
