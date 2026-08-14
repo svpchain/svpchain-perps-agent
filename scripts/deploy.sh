@@ -42,7 +42,7 @@
 #   --operator-key-file <path>     LOCAL hex eth_secp256k1 key, shipped 0600
 #                                  beside the config. Unset → keyless, and the
 #                                  execution skills refuse with a reason.
-#   --operator-capabilities <csv>  Default "trading".
+#   --operator-capabilities <csv>  Default "perps.execution,perps.trading".
 #   --operator-metadata <text>
 #
 # Optional families and tuning:
@@ -90,7 +90,7 @@ agent_chain_id="${SVPCHAIN_AGENT_CHAIN_ID:-}"
 agent_chain_rest="${SVPCHAIN_AGENT_CHAIN_REST:-}"
 public_url="${SVPCHAIN_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.org}"
 operator_key_file="${SVPCHAIN_AGENT_OPERATOR_KEY_FILE:-}"
-operator_capabilities="trading"
+operator_capabilities="perps.execution,perps.trading"
 operator_metadata=""
 faucet_url="${SVPCHAIN_FAUCET_URL:-https://pre-faucet.svpchain.org}"
 install_dir="~/svpchain-perps-agent"
