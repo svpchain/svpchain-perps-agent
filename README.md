@@ -39,6 +39,9 @@ go run ./cmd/svpchain-perps-agent -config cmd/svpchain-perps-agent/agent.toml
 Inspect without touching anything: `--print-config`, `--print-compose`,
 `--print-nginx`, `--dry-run`. Tear down with `--uninstall`.
 
+`--help` lists every flag. There are no EVM or bridge options: `wire.PerpsProfile`
+builds no EVM clients, so this agent has no EVM surface to configure.
+
 ## Behind the reverse proxy
 
 The agents share one host, each on its own path: this one answers at

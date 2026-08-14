@@ -40,12 +40,27 @@ func TestDeployScriptConfigParses(t *testing.T) {
 			"--operator-key-file", keyFile,
 			"--public-url", "https://agents.example.com",
 		},
-		"families-off": {
+		// An optional family switched off must still yield a config that
+		// loads — the faucet skills then refuse at call time with a reason.
+		// The faucet is the only optional family this script renders: the
+		// EVM/bridge/lendora surface went with the multi-agent scaffolding,
+		// because wire.PerpsProfile builds no EVM clients and this binary
+		// never read it.
+		"faucet-off": {
 			"--print-config", "--host", "www@agent.example.com",
-			"--evm-rpc", "", "--faucet-url", "",
-			"--evm-uniswap-router", "", "--evm-wsvp", "", "--evm-oracle", "",
-			"--evm-lendora-comptroller", "", "--evm-bridge-routes", "",
-			"--evm-foreign-chains", "",
+			"--faucet-url", "",
+		},
+		// The other direction: every optional block the script can render, on
+		// at once, so a typo in one of those heredocs fails here rather than
+		// on a remote host. [agent_chain] is both-or-neither in core, which
+		// this also pins.
+		"all-optionals": {
+			"--print-config", "--host", "www@agent.example.com",
+			"--agent-chain-id", "svp-agent-1",
+			"--agent-chain-rest", "http://127.0.0.1:1317",
+			"--deposit-max-usdc", "1000", "--withdraw-max-usdc", "500",
+			"--transfer-max-usdc", "250", "--daily-withdraw-cap-usdc", "2000",
+			"--markets-refresh", "60s",
 		},
 	}
 
@@ -69,6 +84,14 @@ func TestDeployScriptConfigParses(t *testing.T) {
 			if name == "keyed" && cfg.Operator.KeyFile == "" {
 				t.Error("keyed variant must set key_file")
 			}
+			if name == "all-optionals" {
+				if cfg.AgentChain.RestURL == "" {
+					t.Error("all-optionals must render [agent_chain]")
+				}
+				if cfg.Limits.DepositMaxUSDC != 1000 {
+					t.Errorf("deposit_max_usdc = %d, want 1000", cfg.Limits.DepositMaxUSDC)
+				}
+			}
 		})
 	}
 }
@@ -79,8 +102,9 @@ func TestDeployScriptConfigParses(t *testing.T) {
 // disagree on the path segment, the agent advertises a URL that 404s and reads
 // as unverified — with every process healthy and nothing in the logs.
 //
-// Both come from the same two shell functions, so this asserts they stay wired
-// to them rather than to two hand-maintained copies of the same fact.
+// Both come from the same two constants, AGENT_PORT and AGENT_SEGMENT, so this
+// asserts they stay wired to them rather than to two hand-maintained copies of
+// the same fact.
 func TestDeployScriptNginxRouteMatchesConfig(t *testing.T) {
 	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
 	if err != nil {
