@@ -9,10 +9,10 @@
 # so nothing here knows or cares about them.
 #
 # Flow: build (vendored, so the go.mod replace to ../svpagent/protocol never
-# leaves the operator) → docker save (cached by image id) → rsync agent.toml
-# (+ operator.key at 0600 when given) + docker-compose.yml + the image tar to
-# ~/svpchain-perps-agent → docker load → docker compose up -d → smoke-test
-# /healthz and the agent card over loopback.
+# leaves the operator) → docker save (cached by image id) → rsync one staging
+# dir (agent.toml, docker-compose.yml, operator.key at 0600 when given) plus
+# the image tar to ~/svpchain-perps-agent → docker load → docker compose up -d
+# → smoke-test /healthz and the agent card over loopback.
 #
 # The operator key turns delegated execution on. It must be DISTINCT from every
 # other agent's: an agent's on-chain id derives from its key and
@@ -552,28 +552,37 @@ expected_id="$(cat "${image_tar}.id" 2>/dev/null || echo "")"
 
 # Phase 3: ship config + compose + the image tar (operator → remote)
 step "On operator → remote: rsync configs + image tar to $install_dir"
-compose_tmp="$(mktemp -t ${AGENT_NAME}.compose.XXXXXX)"
-toml_tmp="$(mktemp -t ${AGENT_NAME}.toml.XXXXXX)"
-key_tmp=""
-trap 'rm -f "$compose_tmp" "$toml_tmp" "$key_tmp"' EXIT
 
-render_agent_toml   > "$toml_tmp"
-render_compose_yaml > "$compose_tmp"
+# One staging directory, one rsync: everything the remote needs beside the
+# image is rendered here first, so the transfer is a single round trip.
+#
+# The modes are deliberate. The operator key is a secret and must land 0600,
+# and rsync -a carrying the staged mode is the only portable way to get it
+# there — macOS's openrsync rejects --chmod=F600. The other two files shipped
+# from mktemp (0600) before this, so pin the whole directory to match rather
+# than let the umask quietly relax them to 0644 on every deployed host. 0755
+# on the directory itself keeps $install_dir at the mode `mkdir -p` gave it:
+# with a trailing slash on the source, rsync applies the source root's
+# attributes to the destination root.
+stage_dir="$(mktemp -d -t "${AGENT_NAME}.stage.XXXXXX")"
+trap 'rm -rf "$stage_dir"' EXIT
+
+render_agent_toml   > "$stage_dir/agent.toml"
+render_compose_yaml > "$stage_dir/docker-compose.yml"
+if [[ -n "$operator_key" ]]; then
+  cp "$operator_key" "$stage_dir/operator.key"
+fi
+chmod 600 "$stage_dir"/*
+chmod 755 "$stage_dir"
 
 remote_exec "mkdir -p $install_dir $install_dir/data"
-run_or_print "rsync -avz '$toml_tmp' '$host:$install_dir/agent.toml'"
-
-# The operator key is a secret: ship a 0600 temp copy — rsync -a preserves
-# permissions where --chmod=F600 is not portable (macOS's openrsync rejects
-# the octal form) — and pin it remotely too.
-if [[ -n "$operator_key" ]]; then
-  key_tmp="$(mktemp -t ${AGENT_NAME}.key.XXXXXX)"
-  run_or_print "cp '$operator_key' '$key_tmp' && chmod 600 '$key_tmp'"
-  run_or_print "rsync -avz '$key_tmp' '$host:$install_dir/operator.key'"
-  remote_exec "chmod 600 $install_dir/operator.key"
-fi
-
-run_or_print "rsync -avz '$compose_tmp' '$host:$install_dir/docker-compose.yml'"
+# The trailing slash on the source is load-bearing: without it rsync creates
+# $install_dir/<staging-dir-name>/ and the agent keeps running against its old
+# agent.toml, with nothing anywhere reporting an error.
+run_or_print "rsync -avz '$stage_dir/' '$host:$install_dir/'"
+# The image tar ships separately: save_if_changed keys its skip on the
+# ${image_tar}.id sidecar in build/, so folding a multi-hundred-MB file into
+# the staging dir would mean copying it on every run.
 run_or_print "rsync -avz '$image_tar' '$host:$install_dir/${AGENT_NAME}.image.tar'"
 
 # Phase 4: load (On remote)
