@@ -7,8 +7,9 @@
 # beside it. Use a DISTINCT operator key per binary — the agent id derives
 # from the key and self-registration hashes this binary's own card.
 #
-# Build from the repo root, from a VENDORED dependency tree (see the
-# svpchain-remote-agents Dockerfile header for why):
+# Build from the repo root, from a VENDORED dependency tree — the go.mod
+# replace to ../svpagent/protocol points outside the build context, so the
+# dependency must be materialized into ./vendor before docker build:
 #   go mod vendor
 #   docker build --platform linux/amd64 \
 #     -t svpchain-perps-agent:<tag> \

@@ -8,10 +8,13 @@ Cosmos broadcast rail, self-service auth, faucet, the chain's `x/agent` /
 `x/agentwallet` modules, and **delegated perps execution** under
 [SVP-DT](https://github.com/svpchain/svpdt) credentials.
 
-Everything above is implemented in
-[`svpchain-agent-core`](https://github.com/svpchain/svpchain-agent-core); this
-repo composes it — `wire.PerpsProfile` selects the operation families, and
-`card.go` declares this agent's public identity.
+Everything above is implemented under `internal/`, which was the shared
+`svpchain-agent-core` library until that repo was retired and folded in here.
+`cmd/svpchain-perps-agent` composes it — `wire.PerpsProfile` selects the
+operation families, and `card.go` declares this agent's public identity.
+
+Being the only consumer, the vendored copy was pruned to what this binary
+serves: no EVM DeFi or Lendora surface, and no profile but perps.
 
 | | |
 |---|---|
@@ -39,8 +42,8 @@ go run ./cmd/svpchain-perps-agent -config cmd/svpchain-perps-agent/agent.toml
 Inspect without touching anything: `--print-config`, `--print-compose`,
 `--print-nginx`, `--dry-run`. Tear down with `--uninstall`.
 
-`--help` lists every flag. There are no EVM or bridge options: `wire.PerpsProfile`
-builds no EVM clients, so this agent has no EVM surface to configure.
+`--help` lists every flag. There are no EVM or bridge options: this agent has no
+EVM surface, so there is nothing to configure and no `[evm]` schema to set.
 
 ## Behind the reverse proxy
 
@@ -82,16 +85,23 @@ The served card's bytes are hashed into this agent's on-chain registration, and
 verifiers recompute that hash from a live fetch. `card.go` is therefore
 load-bearing: change it and every deployment must run `agent_self_update`.
 `cmd/svpchain-perps-agent/testdata/card.json` is a golden that makes such a
-change deliberate rather than accidental — including when core is upgraded.
+change deliberate rather than accidental — including when the skill text under
+`internal/a2aserver` changes, which moves the card just as surely.
 
 ## Development
 
 `GOWORK=off` is set in every Makefile target. A `go.work` in the parent
-directory resolves `svpchain-agent-core` from a local checkout, which is
-convenient for cross-repo work but would otherwise hide a missing `go get` bump
-and ship against an untagged core.
+directory would resolve dependencies from sibling checkouts rather than the
+versions `go.mod` pins — convenient for cross-repo work, but it can ship a build
+against a revision no tag points at.
 
 The build needs the chain's protocol module at `../svpagent/protocol` (a go.mod
-`replace`), which is also why the Docker build vendors first. `deps_test.go`
-asserts this repo's replace directives still match core's — drift there fails
-loudly instead of resolving upstream cosmos and erroring somewhere unrelated.
+`replace`), which is also why the Docker build vendors first. Because Go does
+not apply a dependency's own `replace` directives, this `go.mod` must restate
+every one of protocol's verbatim; `deps_test.go` diffs the two on every
+`go test ./...`, so drift fails loudly instead of resolving upstream cosmos and
+erroring somewhere unrelated.
+
+`internal/` is the former `svpchain-agent-core`. The sibling agent repos
+(`evm`, `lending`, `research`) still import that module and are unaffected by
+this copy; they need their own migration before it can be deleted.

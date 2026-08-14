@@ -4,8 +4,10 @@
 // agent/agentwallet modules, and delegated perps execution when an operator
 // key is configured.
 //
-// It is the perps-category slice of the full-surface svpchain-remote-agents; the
-// EVM DeFi and Lendora families live in their own binaries.
+// Everything it serves is implemented under internal/, which was the shared
+// svpchain-agent-core library until that repo was retired. This binary is the
+// only consumer, so the library was pruned to the surface it actually serves —
+// there is no EVM DeFi or Lendora code, and no profile but perps.
 package main
 
 import (
@@ -16,9 +18,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/svpchain/svpchain-agent-core/a2aserver"
-	"github.com/svpchain/svpchain-agent-core/config"
-	"github.com/svpchain/svpchain-agent-core/wire"
+	"github.com/svpchain/svpchain-perps-agent/internal/a2aserver"
+	"github.com/svpchain/svpchain-perps-agent/internal/config"
+	"github.com/svpchain/svpchain-perps-agent/internal/wire"
 )
 
 func main() {

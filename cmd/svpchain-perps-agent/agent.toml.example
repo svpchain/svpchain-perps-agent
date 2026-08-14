@@ -1,9 +1,9 @@
 # svpchain-perps-agent configuration.
 #
-# The schema is svpchain-agent-core/config, shared with the sibling agents;
-# keys this profile does not use are ignored. Use a DISTINCT operator key per
-# binary: the agent id derives from the key and self-registration hashes this
-# binary's own card.
+# The schema is internal/config. Unknown keys are ignored rather than rejected,
+# so a config still carrying the retired [evm] blocks loads fine. Use a DISTINCT
+# operator key per binary: the agent id derives from the key and
+# self-registration hashes this binary's own card.
 
 listen_addr = ":8082"
 # How callers reach this agent; advertised in the Agent Card.

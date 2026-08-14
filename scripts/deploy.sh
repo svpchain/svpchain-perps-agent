@@ -191,7 +191,7 @@ emit_operator_capabilities() {
 #
 # listen_addr is always 0.0.0.0:<port> inside the container; --network host
 # means that's also the host-bound port. The optional blocks mirror
-# svpchain-agent-core/config exactly: unset keys → those operations refuse at
+# internal/config exactly: unset keys → those operations refuse at
 # call time. There is no EVM surface here — wire.PerpsProfile builds no EVM
 # clients, so this binary would never read one.
 render_agent_toml() {
@@ -242,7 +242,7 @@ EOF
     [[ -n "$daily_withdraw_cap" ]] && echo "daily_withdraw_cap_usdc = ${daily_withdraw_cap}"
   fi
   # The operator key turns this agent's delegated execution on. key_file is
-  # left relative ("operator.key") on purpose — svpchain-agent-core/config
+  # left relative ("operator.key") on purpose — internal/config
   # resolves it against the agent.toml directory, so it points at the file
   # mounted beside the config.
   if [[ -n "$operator_key" ]]; then

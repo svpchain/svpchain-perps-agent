@@ -1,13 +1,13 @@
 package main
 
-import "github.com/svpchain/svpchain-agent-core/a2aserver"
+import "github.com/svpchain/svpchain-perps-agent/internal/a2aserver"
 
 // identity is this agent's public face: the name, version, and description its
 // Agent Card advertises.
 //
-// It lives here rather than in the core library because it is this agent's
-// product identity — changing it is this repo's decision, not a change to the
-// shared library every agent depends on.
+// It lives here rather than under internal/a2aserver to keep product identity
+// separate from card machinery: the skill text there describes what the agent
+// can do, this describes who it is.
 //
 // ★ These bytes are load-bearing. The served card is hashed and published on
 // chain by agent_self_register, and a verifier fetches the card and recomputes
