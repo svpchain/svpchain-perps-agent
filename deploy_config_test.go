@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
 )
@@ -17,6 +18,11 @@ import (
 //
 // It lives beside the script rather than in core, because after the split the
 // script is this repo's and core cannot see it.
+//
+// Every invocation in this file passes --no-config: the script reads
+// ~/.config/svpchain-perps-agent/config.sh, and a developer who has one would
+// otherwise be testing their own host and chain rather than the defaults these
+// cases assert.
 func TestDeployScriptConfigParses(t *testing.T) {
 	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
 	if err != nil {
@@ -66,7 +72,7 @@ func TestDeployScriptConfigParses(t *testing.T) {
 
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
-			out, err := exec.Command("bash", append([]string{script}, args...)...).Output()
+			out, err := exec.Command("bash", append([]string{script, "--no-config"}, args...)...).Output()
 			if err != nil {
 				t.Fatalf("render config: %v", err)
 			}
@@ -116,7 +122,7 @@ func TestDeployScriptNginxRouteMatchesConfig(t *testing.T) {
 
 	const base = "https://agents.example.com"
 	run := func(mode string) string {
-		out, err := exec.Command("bash", script, mode, "--host", "www@agent.example.com",
+		out, err := exec.Command("bash", script, "--no-config", mode, "--host", "www@agent.example.com",
 			"--public-url", base).Output()
 		if err != nil {
 			t.Fatalf("%s: %v", mode, err)
@@ -151,4 +157,104 @@ func TestDeployScriptNginxRouteMatchesConfig(t *testing.T) {
 	if strings.Contains(nginx, "proxy_pass http://127.0.0.1"+wantPort+";") {
 		t.Error("proxy_pass must end in / so the path segment is stripped")
 	}
+}
+
+// The config file is the normal way to drive a deploy: sourced from
+// ~/.config/svpchain-perps-agent/config.sh so a routine install takes no flags.
+// It is sourced rather than parsed so it can compute values, which is also why
+// the script refuses one other users can write.
+func TestDeployScriptReadsConfigFile(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	dir := t.TempDir()
+	settings := "SVPCHAIN_DEPLOY_HOST=\"www@host.example.com\"\n" +
+		"SVPCHAIN_CHAIN_ID=\"svp-from-file-1\"\n" +
+		"SVPCHAIN_AGENT_PUBLIC_URL=\"https://agents.example.org\"\n" +
+		"SVPCHAIN_MARKETS_REFRESH=\"90s\"\n" +
+		"SVPCHAIN_WITHDRAW_MAX_USDC=\"777\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.sh"), []byte(settings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	load := func(t *testing.T, extra ...string) *config.Config {
+		t.Helper()
+		args := append([]string{script, "--config-dir", dir, "--print-config"}, extra...)
+		out, err := exec.Command("bash", args...).Output()
+		if err != nil {
+			t.Fatalf("render config: %v", err)
+		}
+		path := filepath.Join(t.TempDir(), "agent.toml")
+		if err := os.WriteFile(path, out, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("rendered config does not parse/validate:\n%s\nerror: %v", out, err)
+		}
+		return cfg
+	}
+
+	t.Run("scalars come from the file", func(t *testing.T) {
+		cfg := load(t)
+		if cfg.DEXChain.ID != "svp-from-file-1" {
+			t.Errorf("chain id = %q, want the file's", cfg.DEXChain.ID)
+		}
+		if cfg.PublicURL != "https://agents.example.org/perps" {
+			t.Errorf("public_url = %q, want the file's base + this agent's segment", cfg.PublicURL)
+		}
+	})
+
+	// These two had no env var at all before the config file existed — they
+	// were flag-only, so the file is the first thing that can set them.
+	t.Run("tuning and caps come from the file", func(t *testing.T) {
+		cfg := load(t)
+		if cfg.Limits.WithdrawMaxUSDC != 777 {
+			t.Errorf("withdraw cap = %d, want the file's 777", cfg.Limits.WithdrawMaxUSDC)
+		}
+		if got := time.Duration(cfg.Cache.MarketsRefresh); got != 90*time.Second {
+			t.Errorf("markets refresh = %s, want the file's 90s", got)
+		}
+	})
+
+	t.Run("a flag overrides the file", func(t *testing.T) {
+		cfg := load(t, "--chain-id", "svp-from-flag-1")
+		if cfg.DEXChain.ID != "svp-from-flag-1" {
+			t.Errorf("chain id = %q, want the flag's", cfg.DEXChain.ID)
+		}
+	})
+
+	t.Run("--no-config ignores the file", func(t *testing.T) {
+		cfg := load(t, "--no-config")
+		if cfg.DEXChain.ID == "svp-from-file-1" {
+			t.Errorf("chain id = %q, want the built-in default", cfg.DEXChain.ID)
+		}
+	})
+
+	// Sourcing executes the file, so one anybody can write is a way into the
+	// operator's shell and the key paths it names.
+	t.Run("a world-writable config file is refused", func(t *testing.T) {
+		loose := t.TempDir()
+		loosePath := filepath.Join(loose, "config.sh")
+		if err := os.WriteFile(loosePath, []byte(settings), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// Explicitly, because WriteFile's mode is masked by the umask — 0o666
+		// there lands as 0644 under the usual 022 and would not trip the check.
+		if err := os.Chmod(loosePath, 0o666); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("bash", script, "--config-dir", loose, "--print-config").CombinedOutput()
+		if err == nil {
+			t.Fatalf("world-writable config was sourced; it must refuse:\n%s", out)
+		}
+		if !strings.Contains(string(out), "world-writable") {
+			t.Errorf("refusal should say why:\n%s", out)
+		}
+	})
 }

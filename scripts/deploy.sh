@@ -24,6 +24,19 @@
 # user without sudo. Auth state is in-memory, so a redeploy wipes it; the
 # transfer-out caps persist on the data volume.
 #
+# Config file (so a routine install needs no flags at all):
+#   ~/.config/svpchain-perps-agent/config.sh
+#
+#   A shell file setting the SVPCHAIN_* variables named below. The directory is
+#   this agent's, not the project's, so each agent keeps its own — which is what
+#   keeps their operator keys distinct.
+#   Precedence: flag > environment > config file > default.
+#
+#   --config-dir <path>            Look for it here.      SVPCHAIN_CONFIG_DIR
+#   --no-config                    Ignore it entirely.
+#
+#   See scripts/config.sh.example. Copy it, chmod 600, edit.
+#
 # Required:
 #   --host user@hostname           SSH target.            SVPCHAIN_DEPLOY_HOST
 #
@@ -32,32 +45,41 @@
 #   --grpc-addr <host:port>        SVPCHAIN_GRPC_ADDR    (127.0.0.1:9090)
 #   --comet-rpc <url>              SVPCHAIN_COMET_RPC    (http://127.0.0.1:26657)
 #   --indexer <url>                SVPCHAIN_INDEXER      (http://127.0.0.1:3002)
-#   --agent-chain-id <id>          Optional separate x/agent + x/agentwallet
-#   --agent-chain-rest <url>       chain over its Cosmos REST API. Both or
+#   --agent-chain-id <id>          SVPCHAIN_AGENT_CHAIN_ID
+#   --agent-chain-rest <url>       SVPCHAIN_AGENT_CHAIN_REST
+#                                  Optional separate x/agent + x/agentwallet
+#                                  chain over its Cosmos REST API. Both or
 #                                  neither; unset, those families run against
 #                                  the DEX chain connection.
 #
 # Identity and execution:
 #   --public-url <url>             Base URL; this agent advertises <base>/perps.
+#                                  SVPCHAIN_AGENT_PUBLIC_URL
 #   --operator-key-file <path>     LOCAL hex eth_secp256k1 key, shipped 0600
 #                                  beside the config. Unset → keyless, and the
 #                                  execution skills refuse with a reason.
+#                                  SVPCHAIN_AGENT_OPERATOR_KEY_FILE
 #   --operator-capabilities <csv>  Default "perps.execution,perps.trading".
-#   --operator-metadata <text>
+#                                  SVPCHAIN_OPERATOR_CAPABILITIES
+#   --operator-metadata <text>     SVPCHAIN_OPERATOR_METADATA
 #
 # Optional families and tuning:
 #   --faucet-url <url>             Empty → the faucet skills refuse.
-#   --markets-refresh <dur>        Default 30s.
+#                                  SVPCHAIN_FAUCET_URL
+#   --markets-refresh <dur>        Default 30s.  SVPCHAIN_MARKETS_REFRESH
 #   --deposit-max-usdc <n>         Caps on funds movements, in human USDC;
 #   --withdraw-max-usdc <n>        unset → no cap.
-#   --transfer-max-usdc <n>
-#   --daily-withdraw-cap-usdc <n>
+#   --transfer-max-usdc <n>        SVPCHAIN_DEPOSIT_MAX_USDC,
+#   --daily-withdraw-cap-usdc <n>  SVPCHAIN_WITHDRAW_MAX_USDC,
+#                                  SVPCHAIN_TRANSFER_MAX_USDC,
+#                                  SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
 #
 # Build and placement:
 #   --image-tag <tag>              Default <git-short-sha>.
 #   --platform <p>                 Default linux/amd64.
 #   --skip-build                   Reuse the local image.
 #   --install-dir <path>           Default ~/svpchain-perps-agent on remote.
+#                                  SVPCHAIN_INSTALL_DIR
 #
 # Modes:
 #   --print-config / --print-compose / --print-nginx
@@ -77,6 +99,97 @@ source "${SCRIPT_DIR}/lib/common.sh"
 
 fail() { printf "  ${C_RED}✗${C_RESET} %s\n" "$*" >&2; exit 1; }
 
+# ---- this agent ------------------------------------------------------------
+#
+# AGENT_PORT and AGENT_SEGMENT are the whole route contract, each stated once.
+# The port lands in listen_addr, in the nginx proxy_pass upstream and in the
+# smoke test; the segment lands in the advertised public_url and in the nginx
+# location. Two copies of either fact is how an agent ends up advertising a URL
+# that 404s with every process healthy and nothing in the logs, which is why
+# TestDeployScriptNginxRouteMatchesConfig pins the two renderers together by
+# cross-checking --print-config against --print-nginx.
+#
+# Ahead of the arguments because the config directory is named after
+# AGENT_NAME, and a second spelling of the agent's own name is exactly the kind
+# of duplicated fact the paragraph above is about.
+readonly AGENT_NAME="svpchain-perps-agent"
+readonly AGENT_PORT="8082"
+readonly AGENT_SEGMENT="perps"
+readonly IMAGE_REPO="ghcr.io/svpchain/svpchain-perps-agent"
+
+# ---- config file -----------------------------------------------------------
+#
+# Every setting below can come from a sourced shell file, so a routine install
+# is `./scripts/deploy.sh` rather than a dozen flags:
+#
+#   ~/.config/<agent-name>/config.sh
+#
+# The directory is named after this agent, not after the project, so each agent
+# in the fleet carries its own. That is what keeps the operator keys apart:
+# an agent's on-chain id derives from its key, so two agents sharing one would
+# collide on a single registry record — and a directory per agent makes that
+# impossible to do by accident rather than merely discouraged.
+#
+# Precedence: CLI flag > environment > config file > default. The environment
+# outranks the file so a one-off `SVPCHAIN_DEPLOY_HOST=… deploy` still works,
+# and the flags outrank everything.
+#
+# It is *sourced*, not parsed: a config file can compute its values, and by the
+# same token it is arbitrary code running as you.
+config_dir="${SVPCHAIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/${AGENT_NAME}}"
+use_config="1"
+
+# Pre-scan, because the file must be sourced before the defaults below read
+# the environment, and that happens before the main argument loop runs.
+for ((_i = 1; _i <= $#; _i++)); do
+  case "${!_i}" in
+    --config-dir) _j=$((_i + 1)); config_dir="${!_j:-}" ;;
+    --no-config)  use_config="0" ;;
+  esac
+done
+unset _i _j
+
+# Names the config file may set. Snapshotted before sourcing so anything the
+# caller already exported survives.
+readonly CONFIG_VARS=(
+  SVPCHAIN_DEPLOY_HOST SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR SVPCHAIN_COMET_RPC
+  SVPCHAIN_INDEXER SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
+  SVPCHAIN_AGENT_PUBLIC_URL SVPCHAIN_AGENT_OPERATOR_KEY_FILE
+  SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA SVPCHAIN_INSTALL_DIR
+  SVPCHAIN_FAUCET_URL SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
+  SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
+  SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
+)
+
+# source_config — source the config file if it exists, refusing one that other
+# users can write. It runs as you; a writable config file is a way into this
+# shell, and the key paths it names.
+source_config() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  if [[ -n "$(find "$file" -perm -g+w -o -perm -o+w 2>/dev/null)" ]]; then
+    fail "refusing to source a group- or world-writable config file: ${file} (chmod 600 it)"
+  fi
+  # shellcheck disable=SC1090
+  source "$file" || fail "config file failed to load: ${file}"
+}
+
+if [[ "$use_config" == "1" ]]; then
+  _preset=()
+  for _v in "${CONFIG_VARS[@]}"; do
+    [[ -n "${!_v:-}" ]] && _preset+=("${_v}=${!_v}")
+  done
+
+  source_config "${config_dir}/config.sh"
+
+  # Restoring the pre-source environment over whatever the file set is what
+  # implements "environment beats config file".
+  for _kv in ${_preset+"${_preset[@]}"}; do
+    printf -v "${_kv%%=*}" '%s' "${_kv#*=}"
+  done
+  unset _preset _v _kv
+fi
+
 # ---- args ------------------------------------------------------------------
 
 mode="install"        # install | uninstall | print-config | print-compose | print-nginx
@@ -90,17 +203,17 @@ agent_chain_id="${SVPCHAIN_AGENT_CHAIN_ID:-}"
 agent_chain_rest="${SVPCHAIN_AGENT_CHAIN_REST:-}"
 public_url="${SVPCHAIN_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.org}"
 operator_key_file="${SVPCHAIN_AGENT_OPERATOR_KEY_FILE:-}"
-operator_capabilities="perps.execution,perps.trading"
-operator_metadata=""
+operator_capabilities="${SVPCHAIN_OPERATOR_CAPABILITIES:-perps.execution,perps.trading}"
+operator_metadata="${SVPCHAIN_OPERATOR_METADATA:-}"
 faucet_url="${SVPCHAIN_FAUCET_URL:-https://pre-faucet.svpchain.org}"
-install_dir="~/svpchain-perps-agent"
+install_dir="${SVPCHAIN_INSTALL_DIR:-~/svpchain-perps-agent}"
 image_tag=""
 platform="linux/amd64"
-deposit_max=""
-withdraw_max=""
-transfer_max=""
-daily_withdraw_cap=""
-markets_refresh="30s"
+deposit_max="${SVPCHAIN_DEPOSIT_MAX_USDC:-}"
+withdraw_max="${SVPCHAIN_WITHDRAW_MAX_USDC:-}"
+transfer_max="${SVPCHAIN_TRANSFER_MAX_USDC:-}"
+daily_withdraw_cap="${SVPCHAIN_DAILY_WITHDRAW_CAP_USDC:-}"
+markets_refresh="${SVPCHAIN_MARKETS_REFRESH:-30s}"
 skip_build="0"
 dry_run="0"
 
@@ -126,6 +239,10 @@ while [[ $# -gt 0 ]]; do
     --transfer-max-usdc)      transfer_max="$2";      shift 2 ;;
     --daily-withdraw-cap-usdc) daily_withdraw_cap="$2"; shift 2 ;;
     --markets-refresh)        markets_refresh="$2";   shift 2 ;;
+    # Already handled by the pre-scan above; consumed here so they are not
+    # rejected as unknown.
+    --config-dir)             shift 2 ;;
+    --no-config)              shift ;;
     --skip-build)             skip_build="1";         shift ;;
     --print-config)           mode="print-config";    shift ;;
     --print-compose)          mode="print-compose";   shift ;;
@@ -144,20 +261,6 @@ done
 # Strip a trailing slash (from the flag or env) so the card's
 # "<public_url>/invoke" join stays clean.
 public_url="${public_url%/}"
-
-# ---- this agent ------------------------------------------------------------
-#
-# AGENT_PORT and AGENT_SEGMENT are the whole route contract, each stated once.
-# The port lands in listen_addr, in the nginx proxy_pass upstream and in the
-# smoke test; the segment lands in the advertised public_url and in the nginx
-# location. Two copies of either fact is how an agent ends up advertising a URL
-# that 404s with every process healthy and nothing in the logs, which is why
-# TestDeployScriptNginxRouteMatchesConfig pins the two renderers together by
-# cross-checking --print-config against --print-nginx.
-readonly AGENT_NAME="svpchain-perps-agent"
-readonly AGENT_PORT="8082"
-readonly AGENT_SEGMENT="perps"
-readonly IMAGE_REPO="ghcr.io/svpchain/svpchain-perps-agent"
 
 # The advertised URL: the base plus this agent's segment — a reverse proxy
 # routes that path here. Computed once, after the trailing-slash strip, so the

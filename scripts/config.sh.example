@@ -1,0 +1,68 @@
+# scripts/deploy.sh settings, so a routine install is `./scripts/deploy.sh`
+# with no flags.
+#
+# This file is SOURCED, not parsed — it can compute its values, and it runs as
+# you. deploy.sh refuses to read it if it is group- or world-writable.
+#
+#   mkdir -p ~/.config/svpchain-perps-agent
+#   cp scripts/config.sh.example ~/.config/svpchain-perps-agent/config.sh
+#   chmod 600 ~/.config/svpchain-perps-agent/config.sh
+#
+# The directory is named after this agent rather than after the project, so
+# every agent in the fleet carries its own. That is what keeps their operator
+# keys apart: an agent's on-chain id derives from its key, so two agents
+# sharing one would be a single id claiming two cards.
+#
+# Precedence: flag > environment > config file > default. So
+# `./scripts/deploy.sh --public-url https://staging.example.org` still works,
+# and so does a one-off `SVPCHAIN_DEPLOY_HOST=other ./scripts/deploy.sh`.
+
+# ---- the host and the chain ------------------------------------------------
+
+# SSH target. Needs docker and compose v2 usable without sudo.
+SVPCHAIN_DEPLOY_HOST="www@svpdev1.example.com"
+
+# The DEX chain, as reached from the deploy host itself — the container runs
+# with network_mode: host, so 127.0.0.1 here means the host's own loopback.
+SVPCHAIN_CHAIN_ID="svp-2517-1"
+SVPCHAIN_GRPC_ADDR="127.0.0.1:9090"
+SVPCHAIN_COMET_RPC="http://127.0.0.1:26657"
+SVPCHAIN_INDEXER="http://127.0.0.1:3002"
+
+# Optional separate chain carrying x/agent + x/agentwallet, over its Cosmos
+# REST API. Both or neither.
+#SVPCHAIN_AGENT_CHAIN_ID="svpagent-testnet-1"
+#SVPCHAIN_AGENT_CHAIN_REST="http://127.0.0.1:1317"
+
+# The base URL callers reach the agents at. Each agent appends its own segment;
+# this one advertises <base>/perps.
+SVPCHAIN_AGENT_PUBLIC_URL="https://agents.svpchain.org"
+
+# ---- this agent's identity -------------------------------------------------
+
+# Optional. Unset, the agent runs keyless: it still advertises the execution
+# skills but refuses them at call time with a reason. Set, it signs delegated
+# executions and its own registration.
+#
+# Must be distinct from every other agent's — see above.
+#SVPCHAIN_AGENT_OPERATOR_KEY_FILE="$HOME/.config/svpchain-perps-agent/operator.key"
+
+SVPCHAIN_OPERATOR_CAPABILITIES="perps.execution,perps.trading"
+SVPCHAIN_OPERATOR_METADATA="svpchain perps agent"
+
+# ---- optional families and tuning ------------------------------------------
+
+# Empty makes the faucet skills refuse with a reason.
+SVPCHAIN_FAUCET_URL="https://pre-faucet.svpchain.org"
+
+# How often the markets cache refreshes.
+#SVPCHAIN_MARKETS_REFRESH="30s"
+
+# Caps on funds movements, in human USDC. Unset means no cap.
+#SVPCHAIN_DEPOSIT_MAX_USDC="10000"
+#SVPCHAIN_WITHDRAW_MAX_USDC="10000"
+#SVPCHAIN_TRANSFER_MAX_USDC="10000"
+#SVPCHAIN_DAILY_WITHDRAW_CAP_USDC="50000"
+
+# Where the agent is installed on the remote host.
+#SVPCHAIN_INSTALL_DIR="~/svpchain-perps-agent"
