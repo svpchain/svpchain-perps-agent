@@ -4,9 +4,7 @@
 # This file is SOURCED, not parsed — it can compute its values, and it runs as
 # you. deploy.sh refuses to read it if it is group- or world-writable.
 #
-#   mkdir -p ~/.config/svpchain-perps-agent
-#   cp scripts/config.sh.example ~/.config/svpchain-perps-agent/config.sh
-#   chmod 600 ~/.config/svpchain-perps-agent/config.sh
+#   ./scripts/deploy.sh --init-config    # writes this file at 0600 and names it
 #
 # The directory is named after this agent rather than after the project, so
 # every agent in the fleet carries its own. That is what keeps their operator

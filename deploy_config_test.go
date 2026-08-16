@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -329,5 +330,124 @@ func TestDeployComposeShipsKeyAsSecret(t *testing.T) {
 	// deploy never stages — compose fails to start on a missing secret source.
 	if out := render(t, ""); strings.Contains(out, "secrets:") {
 		t.Errorf("keyless compose must not declare a secret:\n%s", out)
+	}
+}
+
+// --help does not introspect anything: it re-prints the script's own header
+// comment block. So the documented flags and the flags the argument loop
+// actually accepts are two hand-maintained lists, and nothing but discipline
+// keeps them equal. Discipline already failed once here — when the config file
+// was added, seven of its variables never reached the header — so pin all
+// three representations (arg loop, CONFIG_VARS, --print-env) to the docs.
+//
+// Same job as TestDeployScriptNginxRouteMatchesConfig, which pins the rendered
+// config against the rendered nginx block for the same reason.
+func TestDeployScriptDocumentsEveryFlagAndVariable(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+	src, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	helpOut, err := exec.Command("bash", script, "--help").Output()
+	if err != nil {
+		t.Fatalf("--help: %v", err)
+	}
+	help := string(helpOut)
+
+	t.Run("flags", func(t *testing.T) {
+		// Case arms in the argument loop: whitespace, the flag, a paren.
+		arms := regexp.MustCompile(`(?m)^\s+(--[a-z-]+)\)`).FindAllStringSubmatch(string(src), -1)
+		if len(arms) == 0 {
+			t.Fatal("found no flag arms; the parse is wrong, not the script")
+		}
+		for _, m := range arms {
+			flag := m[1]
+			// --help documenting itself is noise; every other flag must appear.
+			if flag == "--help" {
+				continue
+			}
+			if !strings.Contains(help, flag) {
+				t.Errorf("%s is accepted but undocumented in --help", flag)
+			}
+		}
+	})
+
+	// CONFIG_VARS is the authoritative list of names the config file may set.
+	// An entry missing from the example is a setting no operator can discover.
+	t.Run("variables", func(t *testing.T) {
+		block := regexp.MustCompile(`(?s)readonly CONFIG_VARS=\((.*?)\)`).FindStringSubmatch(string(src))
+		if block == nil {
+			t.Fatal("could not find the CONFIG_VARS array")
+		}
+		vars := regexp.MustCompile(`SVPCHAIN_[A-Z_]+`).FindAllString(block[1], -1)
+		if len(vars) == 0 {
+			t.Fatal("CONFIG_VARS parsed empty")
+		}
+
+		example, err := os.ReadFile(filepath.Join("scripts", "config.sh.example"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		envOut, err := exec.Command("bash", script, "--no-config", "--print-env").Output()
+		if err != nil {
+			t.Fatalf("--print-env: %v", err)
+		}
+
+		for _, v := range vars {
+			if !strings.Contains(help, v) {
+				t.Errorf("%s is read by the script but undocumented in --help", v)
+			}
+			if !strings.Contains(string(example), v) {
+				t.Errorf("%s is missing from scripts/config.sh.example", v)
+			}
+			if !strings.Contains(string(envOut), v) {
+				t.Errorf("%s is missing from --print-env", v)
+			}
+		}
+	})
+}
+
+// --print-env exists to make a computed config debuggable, which is only safe
+// if it never prints the one value that must not be echoed.
+func TestPrintEnvRedactsTheOperatorKey(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	key := strings.Repeat("a1", 32)
+	cmd := exec.Command("bash", script, "--no-config", "--print-env")
+	cmd.Env = append(os.Environ(), envKey+"="+key)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("--print-env: %v", err)
+	}
+	if strings.Contains(string(out), key) {
+		t.Errorf("--print-env printed the operator key:\n%s", out)
+	}
+	// Still has to confirm a key resolved, or it cannot do its job.
+	if !strings.Contains(string(out), "set (64 chars)") {
+		t.Errorf("--print-env should report the key as set:\n%s", out)
+	}
+	// And keyless must read as keyless, not as an empty string.
+	cmd = exec.Command("bash", script, "--no-config", "--print-env")
+	cmd.Env = append(os.Environ(), envKey+"=")
+	out, err = cmd.Output()
+	if err != nil {
+		t.Fatalf("--print-env keyless: %v", err)
+	}
+	if !strings.Contains(string(out), "unset") {
+		t.Errorf("--print-env should report a missing key as unset:\n%s", out)
 	}
 }

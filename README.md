@@ -43,12 +43,16 @@ go run ./cmd/svpchain-perps-agent -config cmd/svpchain-perps-agent/agent.toml
 Rather than retyping the flags, put them in a sourced shell file:
 
 ```sh
-mkdir -p ~/.config/svpchain-perps-agent
-cp scripts/config.sh.example ~/.config/svpchain-perps-agent/config.sh
-chmod 600 ~/.config/svpchain-perps-agent/config.sh   # sourced, so it is code
+./scripts/deploy.sh --init-config     # writes the file at 0600 and names it
 ```
 
-Then a routine install is just `./scripts/deploy.sh`.
+Edit what it names, then a routine install is just `./scripts/deploy.sh`.
+
+To see what actually resolved, and from which layer:
+
+```sh
+./scripts/deploy.sh --print-env       # the key prints as "set (64 chars)", never its value
+```
 
 The directory is named after **this agent**, not after the project, so every
 agent in the fleet carries its own. That is not filing tidiness: an agent's
@@ -66,8 +70,8 @@ group- or world-writable.
 The caps and `--markets-refresh` had no environment variable before this file
 existed; they are settable now as `SVPCHAIN_DEPOSIT_MAX_USDC` and friends.
 
-Inspect without touching anything: `--print-config`, `--print-compose`,
-`--print-nginx`, `--dry-run`. Tear down with `--uninstall`.
+Inspect without touching anything: `--print-env`, `--print-config`,
+`--print-compose`, `--print-nginx`, `--dry-run`. Tear down with `--uninstall`.
 
 `--help` lists every flag. There are no EVM or bridge options: this agent has no
 EVM surface, so there is nothing to configure and no `[evm]` schema to set.

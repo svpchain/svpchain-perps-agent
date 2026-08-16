@@ -92,10 +92,16 @@
 #                                  SVPCHAIN_INSTALL_DIR
 #
 # Modes:
+#   --init-config                  Write a starter config file to the config dir
+#                                  at 0600 and exit. Refuses to overwrite.
+#   --print-env                    Show every setting, its resolved value and
+#                                  where it came from. The operator key prints as
+#                                  "set"/"unset", never its value.
 #   --print-config / --print-compose / --print-nginx
 #   --dry-run / --uninstall
 #
 # Examples:
+#   ./scripts/deploy.sh --init-config       # then edit the file it names
 #   ./scripts/deploy.sh                     # a configured install takes no flags
 #   ./scripts/deploy.sh --host www@svpdev1.example.com \
 #     --public-url https://agents.svpchain.org
@@ -196,6 +202,21 @@ source_config() {
   source "$file" || fail "config file failed to load: ${file}"
 }
 
+# Which names were already set in the environment when the script started.
+# Snapshotted unconditionally, and deliberately NOT discarded afterwards:
+# restoring the environment over the config file is what implements
+# "environment beats config file", and --print-env reads the same list to
+# report where each setting came from. A space-padded string rather than an
+# associative array, because macOS still ships bash 3.2.
+ENV_PRESET=" "
+for _v in "${CONFIG_VARS[@]}"; do
+  [[ -n "${!_v:-}" ]] && ENV_PRESET+="${_v} "
+done
+unset _v
+
+# was_preset — did this name arrive from the environment rather than the file?
+was_preset() { [[ "$ENV_PRESET" == *" $1 "* ]]; }
+
 if [[ "$use_config" == "1" ]]; then
   _preset=()
   for _v in "${CONFIG_VARS[@]}"; do
@@ -214,7 +235,14 @@ fi
 
 # ---- args ------------------------------------------------------------------
 
-mode="install"        # install | uninstall | print-config | print-compose | print-nginx
+mode="install"        # install | uninstall | init-config | print-env
+                      #         | print-config | print-compose | print-nginx
+
+# Settings a flag overrode, so --print-env can say so. Same space-padded-string
+# trick as ENV_PRESET, for the same bash 3.2 reason.
+FLAG_SET=" "
+mark_flag() { FLAG_SET+="$1 "; }
+was_flag()  { [[ "$FLAG_SET" == *" $1 "* ]]; }
 
 host=""
 chain_id="${SVPCHAIN_CHAIN_ID:-svp-2517-1}"
@@ -244,29 +272,31 @@ dry_run="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --host)                   host="$2";              shift 2 ;;
-    --chain-id)               chain_id="$2";          shift 2 ;;
-    --grpc-addr)              grpc_addr="$2";         shift 2 ;;
-    --comet-rpc)              comet_rpc="$2";         shift 2 ;;
-    --indexer)                indexer="$2";           shift 2 ;;
-    --agent-chain-id)         agent_chain_id="$2";    shift 2 ;;
-    --agent-chain-rest)       agent_chain_rest="$2";  shift 2 ;;
-    --public-url)             public_url="$2";        shift 2 ;;
-    --operator-capabilities)  operator_capabilities="$2"; shift 2 ;;
-    --operator-metadata)      operator_metadata="$2"; shift 2 ;;
-    --faucet-url)             faucet_url="$2";        shift 2 ;;
-    --install-dir)            install_dir="$2";       shift 2 ;;
+    --host)                   host="$2"; mark_flag SVPCHAIN_DEPLOY_HOST;              shift 2 ;;
+    --chain-id)               chain_id="$2"; mark_flag SVPCHAIN_CHAIN_ID;          shift 2 ;;
+    --grpc-addr)              grpc_addr="$2"; mark_flag SVPCHAIN_GRPC_ADDR;         shift 2 ;;
+    --comet-rpc)              comet_rpc="$2"; mark_flag SVPCHAIN_COMET_RPC;         shift 2 ;;
+    --indexer)                indexer="$2"; mark_flag SVPCHAIN_INDEXER;           shift 2 ;;
+    --agent-chain-id)         agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID;    shift 2 ;;
+    --agent-chain-rest)       agent_chain_rest="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_REST;  shift 2 ;;
+    --public-url)             public_url="$2"; mark_flag SVPCHAIN_AGENT_PUBLIC_URL;        shift 2 ;;
+    --operator-capabilities)  operator_capabilities="$2"; mark_flag SVPCHAIN_OPERATOR_CAPABILITIES; shift 2 ;;
+    --operator-metadata)      operator_metadata="$2"; mark_flag SVPCHAIN_OPERATOR_METADATA; shift 2 ;;
+    --faucet-url)             faucet_url="$2"; mark_flag SVPCHAIN_FAUCET_URL;        shift 2 ;;
+    --install-dir)            install_dir="$2"; mark_flag SVPCHAIN_INSTALL_DIR;       shift 2 ;;
     --image-tag)              image_tag="$2";         shift 2 ;;
     --platform)               platform="$2";          shift 2 ;;
-    --deposit-max-usdc)       deposit_max="$2";       shift 2 ;;
-    --withdraw-max-usdc)      withdraw_max="$2";      shift 2 ;;
-    --transfer-max-usdc)      transfer_max="$2";      shift 2 ;;
-    --daily-withdraw-cap-usdc) daily_withdraw_cap="$2"; shift 2 ;;
-    --markets-refresh)        markets_refresh="$2";   shift 2 ;;
+    --deposit-max-usdc)       deposit_max="$2"; mark_flag SVPCHAIN_DEPOSIT_MAX_USDC;       shift 2 ;;
+    --withdraw-max-usdc)      withdraw_max="$2"; mark_flag SVPCHAIN_WITHDRAW_MAX_USDC;      shift 2 ;;
+    --transfer-max-usdc)      transfer_max="$2"; mark_flag SVPCHAIN_TRANSFER_MAX_USDC;      shift 2 ;;
+    --daily-withdraw-cap-usdc) daily_withdraw_cap="$2"; mark_flag SVPCHAIN_DAILY_WITHDRAW_CAP_USDC; shift 2 ;;
+    --markets-refresh)        markets_refresh="$2"; mark_flag SVPCHAIN_MARKETS_REFRESH;   shift 2 ;;
     # Already handled by the pre-scan above; consumed here so they are not
     # rejected as unknown.
-    --config-dir)             shift 2 ;;
+    --config-dir)             mark_flag SVPCHAIN_CONFIG_DIR; shift 2 ;;
     --no-config)              shift ;;
+    --init-config)            mode="init-config";     shift ;;
+    --print-env)              mode="print-env";       shift ;;
     --skip-build)             skip_build="1";         shift ;;
     --print-config)           mode="print-config";    shift ;;
     --print-compose)          mode="print-compose";   shift ;;
@@ -583,6 +613,100 @@ location /${AGENT_SEGMENT}/ {
 }
 EOF
 }
+
+# ---- mode: init-config ----------------------------------------------------
+#
+# The three-step setup this replaces (mkdir, cp, chmod) had a delayed failure
+# mode: forget the chmod and nothing complains until the NEXT deploy refuses to
+# source a group-writable file. Doing it in one step removes the window.
+#
+# Runs before require_install_args on purpose — bootstrapping a config needs
+# neither a host nor a key, which is the whole point of it.
+if [[ "$mode" == "init-config" ]]; then
+  src="${SCRIPT_DIR}/config.sh.example"
+  dst="${config_dir}/config.sh"
+  [[ -f "$src" ]] || fail "template not found: ${src} (running a copy of the script outside its repo?)"
+  # An explicit if, not `[[ -e … ]] && fail`: when the file does NOT exist the
+  # && chain evaluates false, and as the last command under `set -e` that would
+  # exit 1 with no message — refusing to bootstrap precisely when it should.
+  if [[ -e "$dst" ]]; then
+    fail "refusing to overwrite ${dst} — delete it first if you meant to start over"
+  fi
+  mkdir -p "$config_dir" || fail "could not create ${config_dir}"
+  # install(1) sets the mode as it writes, so the file is never briefly 0644.
+  install -m 600 "$src" "$dst" || fail "could not write ${dst}"
+  step "Wrote ${dst} (mode 600)"
+  info "Edit it — at minimum SVPCHAIN_DEPLOY_HOST and SVPCHAIN_AGENT_PUBLIC_URL —"
+  info "then run ./scripts/deploy.sh"
+  exit 0
+fi
+
+# ---- mode: print-env ------------------------------------------------------
+#
+# Precedence is flag > environment > config file > default, and the config file
+# is SOURCED, so a value can be computed rather than written. That combination
+# makes "why is it deploying there" genuinely hard to answer by reading. This
+# prints the resolved value of every setting next to where it came from.
+#
+# The operator key is reported as set/unset with a length, never echoed: the
+# main reason to reach for this mode after configuring a key is to confirm the
+# config file computed one, and that must not require printing a secret.
+if [[ "$mode" == "print-env" ]]; then
+  # Name → the local variable holding the resolved value. Parallel arrays
+  # rather than an associative array, because macOS still ships bash 3.2.
+  env_names=(
+    SVPCHAIN_CONFIG_DIR SVPCHAIN_DEPLOY_HOST SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
+    SVPCHAIN_COMET_RPC SVPCHAIN_INDEXER SVPCHAIN_AGENT_CHAIN_ID
+    SVPCHAIN_AGENT_CHAIN_REST SVPCHAIN_AGENT_PUBLIC_URL
+    SVPCHAIN_PERPS_AGENT_OPERATOR_KEY SVPCHAIN_OPERATOR_CAPABILITIES
+    SVPCHAIN_OPERATOR_METADATA SVPCHAIN_FAUCET_URL SVPCHAIN_MARKETS_REFRESH
+    SVPCHAIN_DEPOSIT_MAX_USDC SVPCHAIN_WITHDRAW_MAX_USDC
+    SVPCHAIN_TRANSFER_MAX_USDC SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
+    SVPCHAIN_INSTALL_DIR
+  )
+  env_values=(
+    "$config_dir" "$host" "$chain_id" "$grpc_addr"
+    "$comet_rpc" "$indexer" "$agent_chain_id"
+    "$agent_chain_rest" "$public_url"
+    "$operator_key" "$operator_capabilities"
+    "$operator_metadata" "$faucet_url" "$markets_refresh"
+    "$deposit_max" "$withdraw_max"
+    "$transfer_max" "$daily_withdraw_cap"
+    "$install_dir"
+  )
+
+  if [[ "$use_config" == "1" && -f "${config_dir}/config.sh" ]]; then
+    printf 'config file: %s\n\n' "${config_dir}/config.sh"
+  elif [[ "$use_config" == "1" ]]; then
+    printf 'config file: %s (not present)\n\n' "${config_dir}/config.sh"
+  else
+    printf 'config file: ignored (--no-config)\n\n'
+  fi
+
+  for _i in "${!env_names[@]}"; do
+    name="${env_names[$_i]}"
+    value="${env_values[$_i]}"
+
+    if was_flag "$name";       then origin="flag"
+    elif was_preset "$name";   then origin="environment"
+    elif [[ -n "${!name:-}" ]]; then origin="config file"
+    else                            origin="default"
+    fi
+
+    # Never print the key. A length is enough to tell "computed correctly"
+    # from "the command substitution returned nothing". Trimmed but NOT
+    # validated: a malformed key should still be diagnosable here rather than
+    # aborting the one mode you would reach for to diagnose it.
+    if [[ "$name" == "SVPCHAIN_PERPS_AGENT_OPERATOR_KEY" ]]; then
+      value="$(printf '%s' "$value" | tr -d '[:space:]')"
+      if [[ -n "$value" ]]; then value="set (${#value} chars)"; else value="unset"; fi
+    fi
+    [[ -n "$value" ]] || value="(empty)"
+
+    printf '%-36s %-14s %s\n' "$name" "$origin" "$value"
+  done
+  exit 0
+fi
 
 # ---- mode: print-config ---------------------------------------------------
 
