@@ -9,7 +9,18 @@ import (
 	"time"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
+	"github.com/svpchain/svpchain-perps-agent/internal/operator"
 )
+
+// The operator key reaches the deploy through the environment — there is no
+// flag, because a hex key in argv lands in `ps` and in shell history. Taken
+// from the operator package rather than spelled again here, so a rename there
+// cannot leave these tests silently exercising a variable nothing reads.
+const envKey = operator.KeyEnvVar
+
+// secretMount is where docker compose mounts the shipped secret, and therefore
+// what the rendered agent.toml must point key_file at.
+const secretMount = "/run/secrets/operator_key"
 
 // scripts/deploy.sh renders this agent's agent.toml itself. This pins the two
 // together: whatever the script prints must parse and validate under core's
@@ -32,18 +43,10 @@ func TestDeployScriptConfigParses(t *testing.T) {
 		t.Skipf("deploy script not found: %v", err)
 	}
 
-	// A keyed variant needs a real key file: the script validates it is 32
-	// bytes of hex before rendering an [operator] block for it.
-	keyFile := filepath.Join(t.TempDir(), "operator.key")
-	if err := os.WriteFile(keyFile, []byte(strings.Repeat("a1", 32)+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
 	cases := map[string][]string{
 		"keyless": {"--print-config", "--host", "www@agent.example.com"},
 		"keyed": {
 			"--print-config", "--host", "www@agent.example.com",
-			"--operator-key-file", keyFile,
 			"--public-url", "https://agents.example.com",
 		},
 		// An optional family switched off must still yield a config that
@@ -72,7 +75,17 @@ func TestDeployScriptConfigParses(t *testing.T) {
 
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
-			out, err := exec.Command("bash", append([]string{script, "--no-config"}, args...)...).Output()
+			cmd := exec.Command("bash", append([]string{script, "--no-config"}, args...)...)
+			// The key is supplied through the environment now, so only the
+			// "keyed" case sets it. It is the material itself, not a path —
+			// the script validates it is 32 bytes of hex. Every other case
+			// scrubs it, so a developer's exported key cannot turn a keyless
+			// assertion into a keyed one.
+			cmd.Env = append(os.Environ(), envKey+"=")
+			if name == "keyed" {
+				cmd.Env = append(cmd.Env, envKey+"="+strings.Repeat("a1", 32))
+			}
+			out, err := cmd.Output()
 			if err != nil {
 				t.Fatalf("render config: %v", err)
 			}
@@ -87,8 +100,21 @@ func TestDeployScriptConfigParses(t *testing.T) {
 			if cfg.PublicURL == "" {
 				t.Error("rendered config must carry a public_url")
 			}
-			if name == "keyed" && cfg.Operator.KeyFile == "" {
-				t.Error("keyed variant must set key_file")
+			// The key must be reachable at the compose secret mount, and the
+			// path must survive config.Load unchanged: a RELATIVE key_file is
+			// joined against the agent.toml directory, which would silently
+			// rewrite this to /etc/svpchain-perps-agent/run/secrets/… and
+			// leave the agent keyless with nothing in the logs.
+			if name == "keyed" && cfg.Operator.KeyFile != secretMount {
+				t.Errorf("key_file = %q, want %q", cfg.Operator.KeyFile, secretMount)
+			}
+			// Keyless is a supported mode for this agent, not a failure: the
+			// execution skills refuse at call time with a reason.
+			if name != "keyed" && cfg.Operator.KeyFile != "" {
+				t.Errorf("keyless variant must not set key_file, got %q", cfg.Operator.KeyFile)
+			}
+			if strings.Contains(string(out), strings.Repeat("a1", 32)) {
+				t.Error("rendered agent.toml contains the operator key material")
 			}
 			if name == "all-optionals" {
 				if cfg.AgentChain.RestURL == "" {
@@ -257,4 +283,51 @@ func TestDeployScriptReadsConfigFile(t *testing.T) {
 			t.Errorf("refusal should say why:\n%s", out)
 		}
 	})
+}
+
+// The key must reach the container as a compose secret, never as a bind mount
+// or a container environment variable: `docker inspect` prints both the volume
+// list and Config.Env in full, so either would put the operator key wherever
+// that output gets pasted.
+func TestDeployComposeShipsKeyAsSecret(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	render := func(t *testing.T, key string) string {
+		t.Helper()
+		cmd := exec.Command("bash", script, "--no-config", "--print-compose",
+			"--host", "www@agent.example.com")
+		cmd.Env = append(os.Environ(), envKey+"="+key)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("render compose: %v", err)
+		}
+		return string(out)
+	}
+
+	key := strings.Repeat("a1", 32)
+	got := render(t, key)
+	if strings.Contains(got, key) {
+		t.Error("docker-compose.yml contains the operator key material")
+	}
+	if strings.Contains(got, "operator.key:/etc/") {
+		t.Error("operator key is still bind-mounted; it must ship as a compose secret")
+	}
+	if strings.Contains(got, envKey) {
+		t.Errorf("operator key must not be passed as a container env var:\n%s", got)
+	}
+	if !strings.Contains(got, "secrets:") || !strings.Contains(got, "operator_key:") {
+		t.Errorf("compose is missing the operator_key secret:\n%s", got)
+	}
+
+	// Keyless renders no secret at all, rather than one pointing at a file the
+	// deploy never stages — compose fails to start on a missing secret source.
+	if out := render(t, ""); strings.Contains(out, "secrets:") {
+		t.Errorf("keyless compose must not declare a secret:\n%s", out)
+	}
 }

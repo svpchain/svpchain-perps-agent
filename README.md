@@ -35,7 +35,6 @@ go run ./cmd/svpchain-perps-agent -config cmd/svpchain-perps-agent/agent.toml
 
 ```sh
 ./scripts/deploy.sh --host www@host.example.com \
-  --operator-key-file ./perps.key \
   --public-url https://agents.svpchain.org
 ```
 
@@ -98,8 +97,26 @@ Optional. Without one the agent runs keyless and the execution skills refuse
 with a reason. With one, `agent_self_register` puts this agent on chain and it
 can execute delegated orders and be paid through the settlement escrow.
 
-It is a 32-byte hex eth_secp256k1 key, read from `[operator] key_file` or from
-`SVPCHAIN_AGENT_OPERATOR_KEY` (which takes precedence), and shipped at mode 600.
+It is a 32-byte hex eth_secp256k1 key. A local run reads it from
+`[operator] key_file` or from `SVPCHAIN_PERPS_AGENT_OPERATOR_KEY`, which takes
+precedence. The variable is named for *this* agent rather than the fleet, for
+the same reason the config directory is: one shared name across agents is one
+id claiming several cards.
+
+For a deploy the key goes in `config.sh` as
+`SVPCHAIN_PERPS_AGENT_OPERATOR_KEY`, holding the hex itself rather than a path.
+There is no flag for it — a key in `argv` shows up in `ps` and in your shell
+history. Because the file is sourced it can compute the value, so the key need
+not sit in plaintext on the machine you deploy from:
+
+```sh
+SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(op read op://vault/perps/key)"
+```
+
+On the remote it lands as a **docker compose secret** mounted read-only at
+`/run/secrets/operator_key`, which is what `key_file` then points at. Not a
+container environment variable — `docker inspect` and `/proc/<pid>/environ`
+would both expose that.
 
 **It must be distinct from every other agent's key.** An agent's on-chain id
 derives from its key and `agent_self_register` publishes a hash of *this*

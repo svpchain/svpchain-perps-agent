@@ -55,10 +55,20 @@
 # Identity and execution:
 #   --public-url <url>             Base URL; this agent advertises <base>/perps.
 #                                  SVPCHAIN_AGENT_PUBLIC_URL
-#   --operator-key-file <path>     LOCAL hex eth_secp256k1 key, shipped 0600
-#                                  beside the config. Unset → keyless, and the
-#                                  execution skills refuse with a reason.
-#                                  SVPCHAIN_AGENT_OPERATOR_KEY_FILE
+#
+#   SVPCHAIN_PERPS_AGENT_OPERATOR_KEY
+#                                  The hex eth_secp256k1 operator key ITSELF, not
+#                                  a path — there is no flag for it, because a key
+#                                  on the command line lands in `ps` and in your
+#                                  shell history. Set it in the config file, which
+#                                  is sourced and can therefore compute it:
+#                                    SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(op read …)"
+#                                  Unset → keyless, and the execution skills refuse
+#                                  with a reason. Set, it ships to the remote as a
+#                                  docker compose SECRET mounted at
+#                                  /run/secrets/operator_key — never as a container
+#                                  environment variable, which `docker inspect` and
+#                                  /proc/<pid>/environ would both expose.
 #   --operator-capabilities <csv>  Default "perps.execution,perps.trading".
 #                                  SVPCHAIN_OPERATOR_CAPABILITIES
 #   --operator-metadata <text>     SVPCHAIN_OPERATOR_METADATA
@@ -86,9 +96,9 @@
 #   --dry-run / --uninstall
 #
 # Examples:
-#   ./scripts/deploy.sh --host www@svpdev1.example.com
+#   ./scripts/deploy.sh                     # a configured install takes no flags
 #   ./scripts/deploy.sh --host www@svpdev1.example.com \
-#     --operator-key-file ./perps.key --public-url https://agents.svpchain.org
+#     --public-url https://agents.svpchain.org
 #   ./scripts/deploy.sh --uninstall --host www@svpdev1.example.com
 #
 set -euo pipefail
@@ -116,6 +126,18 @@ readonly AGENT_NAME="svpchain-perps-agent"
 readonly AGENT_PORT="8082"
 readonly AGENT_SEGMENT="perps"
 readonly IMAGE_REPO="ghcr.io/svpchain/svpchain-perps-agent"
+
+# The operator key travels as a docker compose secret rather than a bind mount
+# or a container environment variable. Compose mounts a secret at
+# /run/secrets/<name>, and unlike `environment:` it stays out of
+# `docker inspect` and /proc/<pid>/environ. Stated once here because the name
+# lands in three places — the service's secrets list, the top-level secrets
+# block, and the key_file path in agent.toml — and the agent boots keyless,
+# with nothing in the logs, if they disagree.
+readonly SECRET_NAME="operator_key"
+readonly SECRET_MOUNT_PATH="/run/secrets/${SECRET_NAME}"
+# Staged and shipped under this name; the top-level secrets block points here.
+readonly SECRET_FILE="operator.key"
 
 # ---- config file -----------------------------------------------------------
 #
@@ -154,7 +176,7 @@ unset _i _j
 readonly CONFIG_VARS=(
   SVPCHAIN_DEPLOY_HOST SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR SVPCHAIN_COMET_RPC
   SVPCHAIN_INDEXER SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
-  SVPCHAIN_AGENT_PUBLIC_URL SVPCHAIN_AGENT_OPERATOR_KEY_FILE
+  SVPCHAIN_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OPERATOR_KEY
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA SVPCHAIN_INSTALL_DIR
   SVPCHAIN_FAUCET_URL SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
   SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
@@ -202,7 +224,10 @@ indexer="${SVPCHAIN_INDEXER:-http://127.0.0.1:3002}"
 agent_chain_id="${SVPCHAIN_AGENT_CHAIN_ID:-}"
 agent_chain_rest="${SVPCHAIN_AGENT_CHAIN_REST:-}"
 public_url="${SVPCHAIN_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.org}"
-operator_key_file="${SVPCHAIN_AGENT_OPERATOR_KEY_FILE:-}"
+# The operator key MATERIAL, not a path. There is deliberately no flag for it:
+# a hex key in argv is visible in `ps` and lands in shell history. The config
+# file is sourced, so it can compute the value instead of storing it.
+operator_key="${SVPCHAIN_PERPS_AGENT_OPERATOR_KEY:-}"
 operator_capabilities="${SVPCHAIN_OPERATOR_CAPABILITIES:-perps.execution,perps.trading}"
 operator_metadata="${SVPCHAIN_OPERATOR_METADATA:-}"
 faucet_url="${SVPCHAIN_FAUCET_URL:-https://pre-faucet.svpchain.org}"
@@ -227,7 +252,6 @@ while [[ $# -gt 0 ]]; do
     --agent-chain-id)         agent_chain_id="$2";    shift 2 ;;
     --agent-chain-rest)       agent_chain_rest="$2";  shift 2 ;;
     --public-url)             public_url="$2";        shift 2 ;;
-    --operator-key-file)      operator_key_file="$2"; shift 2 ;;
     --operator-capabilities)  operator_capabilities="$2"; shift 2 ;;
     --operator-metadata)      operator_metadata="$2"; shift 2 ;;
     --faucet-url)             faucet_url="$2";        shift 2 ;;
@@ -267,9 +291,11 @@ public_url="${public_url%/}"
 # config, the nginx block and the preflight banner cannot disagree.
 agent_public_url="${public_url}/${AGENT_SEGMENT}"
 
-# Absolute path to the local operator key file; empty means keyless. Set once
-# by resolve_operator_key, which every mode runs before rendering anything.
-operator_key=""
+# $operator_key holds the key material itself, seeded from the environment
+# above. Empty means keyless — a fully supported mode here: the agent still
+# advertises the execution skills and refuses them at call time with a reason.
+# Normalised and validated once by resolve_operator_key, which runs before
+# anything is rendered.
 
 # ---- shared helpers -------------------------------------------------------
 
@@ -344,15 +370,16 @@ EOF
     [[ -n "$transfer_max"       ]] && echo "transfer_max_usdc       = ${transfer_max}"
     [[ -n "$daily_withdraw_cap" ]] && echo "daily_withdraw_cap_usdc = ${daily_withdraw_cap}"
   fi
-  # The operator key turns this agent's delegated execution on. key_file is
-  # left relative ("operator.key") on purpose — internal/config
+  # The operator key turns this agent's delegated execution on. key_file points
+  # at the docker compose secret mount. The path is ABSOLUTE on purpose:
+  # internal/config
   # resolves it against the agent.toml directory, so it points at the file
   # mounted beside the config.
   if [[ -n "$operator_key" ]]; then
     cat <<EOF
 
 [operator]
-key_file     = "operator.key"
+key_file     = "${SECRET_MOUNT_PATH}"
 capabilities = $(emit_operator_capabilities)
 metadata     = "${operator_metadata}"
 EOF
@@ -390,8 +417,23 @@ EOF
   # An explicit if, not `[[ … ]] && echo`: a false test as the last command
   # would make the function return non-zero, and under `set -e` the
   # `render_compose_yaml > file` call site would exit the script silently.
+  # A compose secret rather than a bind mount. Both end up as a read-only file
+  # in the container, but the secret keeps the operator key out of the volume
+  # list, which `docker inspect` prints in full.
+  #
+  # Note the uid/gid/mode options compose accepts on a secret are swarm-only
+  # and silently ignored here; the mount inherits the source file's ownership.
+  # That is fine because the image declares no USER, so the process is root and
+  # can read the 0600 file rsync lands.
   if [[ -n "$operator_key" ]]; then
-    echo "      - ${install_dir}/operator.key:/etc/${AGENT_NAME}/operator.key:ro"
+    cat <<EOF
+    secrets:
+      - ${SECRET_NAME}
+
+secrets:
+  ${SECRET_NAME}:
+    file: ${install_dir}/${SECRET_FILE}
+EOF
   fi
 }
 
@@ -399,28 +441,31 @@ require_install_args() {
   [[ -n "$host" ]] || fail "--host is required (or set SVPCHAIN_DEPLOY_HOST)"
 }
 
-# validate_hex_key — a file must look like a 32-byte hex operator key.
+# validate_hex_key — the VALUE must look like a 32-byte hex operator key.
+# Takes the key itself, not a path, so validation happens before the material
+# is written anywhere. The error deliberately does not echo the value.
 validate_hex_key() {
-  grep -Eq '^(0x)?[0-9a-fA-F]{64}[[:space:]]*$' "$1" \
-    || fail "operator key '$1' does not look like a 32-byte hex key"
+  [[ "$1" =~ ^(0x)?[0-9a-fA-F]{64}$ ]] \
+    || fail "SVPCHAIN_PERPS_AGENT_OPERATOR_KEY does not look like a 32-byte hex key (got ${#1} characters)"
 }
 
-# resolve_operator_key — find the operator key from --operator-key-file.
-# Without one the agent runs keyless: it advertises execution but refuses with
-# a reason. The path resolves against the operator's CWD, so this must run
-# before any cd.
+# resolve_operator_key — normalise and validate the key material supplied in
+# SVPCHAIN_PERPS_AGENT_OPERATOR_KEY. Without one the agent runs keyless: it
+# advertises execution but refuses with a reason.
+#
+# The trim matters more than it looks: the natural way to set this is
+# `="$(cat …)"` or `="$(op read …)"`, and a trailing newline from either would
+# fail the hex check for a key that is perfectly good.
 #
 # The key must be distinct from every other agent's — an agent's on-chain id
 # derives from it and agent_self_register hashes this binary's own card, so a
 # shared key makes two agents collide on one registry record. With the agents
 # in separate repos nothing can check that here; it is an operational rule.
 resolve_operator_key() {
-  [[ -n "$operator_key_file" ]] || return 0
-  local src="$operator_key_file"
-  [[ "$src" = /* ]] || src="$(pwd)/$src"
-  [[ -f "$src" ]] || fail "--operator-key-file '$src' was not found"
-  validate_hex_key "$src"
-  operator_key="$src"
+  [[ -n "$operator_key" ]] || return 0
+  # Strip surrounding whitespace, including a trailing newline.
+  operator_key="$(printf '%s' "$operator_key" | tr -d '[:space:]')"
+  validate_hex_key "$operator_key"
 }
 
 # resolve_remote_install_dir — expand a leading ~ in $install_dir to the
@@ -543,7 +588,8 @@ EOF
 
 if [[ "$mode" == "print-config" ]]; then
   # Preview the agent.toml this deploy would ship, [operator] block included
-  # when --operator-key-file supplies a key.
+  # when the environment supplies a key. The key material is never in this
+  # file — it ships as a separate compose secret.
   resolve_operator_key
   render_agent_toml
   exit 0
@@ -553,8 +599,8 @@ fi
 
 if [[ "$mode" == "print-compose" ]]; then
   # Preview the docker-compose.yml. Uses a placeholder install_dir/image when
-  # not resolved, and reflects --operator-key-file so a keyed deploy shows its
-  # operator.key mount.
+  # not resolved, and shows the secrets block when a key is configured. The key
+  # itself is not here either — the block points at the file the deploy stages.
   resolve_operator_key
   image_ref="${IMAGE_REPO}:${image_tag:-<tag>}"
   render_compose_yaml
@@ -592,8 +638,8 @@ require_cmd rsync
 require_cmd ssh
 require_cmd go
 
-# Resolve the operator key path (against the operator's CWD, before any cd) and
-# validate it. With no key the agent runs keyless.
+# Normalise and validate the operator key material. With no key the agent runs
+# keyless.
 resolve_operator_key
 
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -611,7 +657,7 @@ step "Preflight (operator + remote)"
 info "host=$host image=$image_ref platform=$platform"
 info "install_dir=$install_dir public_url=$agent_public_url"
 if [[ -n "$operator_key" ]]; then
-  info "  ${AGENT_NAME} :${AGENT_PORT} — key ${operator_key} (execution ON)"
+  info "  ${AGENT_NAME} :${AGENT_PORT} — operator key set (execution ON)"
 else
   info "  ${AGENT_NAME} :${AGENT_PORT} — keyless (execution refuses with a reason)"
 fi
@@ -673,7 +719,10 @@ trap 'rm -rf "$stage_dir"' EXIT
 render_agent_toml   > "$stage_dir/agent.toml"
 render_compose_yaml > "$stage_dir/docker-compose.yml"
 if [[ -n "$operator_key" ]]; then
-  cp "$operator_key" "$stage_dir/operator.key"
+  # printf, not cp: the key came from the environment, and this is the one
+  # place it touches a disk. mktemp -d gave $stage_dir 0700, so the file is
+  # never readable by other users even between creation and the chmod below.
+  printf '%s\n' "$operator_key" > "$stage_dir/${SECRET_FILE}"
 fi
 chmod 600 "$stage_dir"/*
 chmod 755 "$stage_dir"

@@ -44,8 +44,28 @@ SVPCHAIN_AGENT_PUBLIC_URL="https://agents.svpchain.org"
 # skills but refuses them at call time with a reason. Set, it signs delegated
 # executions and its own registration.
 #
+# This is the hex key ITSELF, not a path to it, and there is no flag for it: a
+# key in argv shows up in `ps` and in your shell history. Because this file is
+# sourced rather than parsed, the value can be computed — which is the point,
+# since it means the key need not sit in plaintext anywhere on this machine:
+#
+#   SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(op read op://vault/perps/key)"
+#   SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(pass show svpchain/perps)"
+#
+# Reading it from a file still works if you keep one:
+#
+#   SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(cat "$HOME/.config/svpchain-perps-agent/operator.key")"
+#
+# The deploy ships it to the remote as a docker compose secret mounted at
+# /run/secrets/operator_key — never as a container environment variable, which
+# `docker inspect` would expose.
+#
 # Must be distinct from every other agent's — see above.
-#SVPCHAIN_AGENT_OPERATOR_KEY_FILE="$HOME/.config/svpchain-perps-agent/operator.key"
+#
+# Left COMMENTED OUT deliberately. This file is sourced, so an uncommented line
+# reading a key you have not created yet would fail the source itself, and
+# every command would then die on that instead of running keyless as intended.
+#SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(cat "$HOME/.config/svpchain-perps-agent/operator.key")"
 
 SVPCHAIN_OPERATOR_CAPABILITIES="perps.execution,perps.trading"
 SVPCHAIN_OPERATOR_METADATA="svpchain perps agent"

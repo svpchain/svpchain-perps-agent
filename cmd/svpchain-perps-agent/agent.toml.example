@@ -33,7 +33,7 @@ daily_withdraw_cap_usdc = 5000
 
 # Operator key for delegated perps execution and on-chain self-registration.
 # Optional: without it the svpchain-execution skill refuses with a reason.
-# The SVPCHAIN_AGENT_OPERATOR_KEY env var takes precedence over key_file.
+# The SVPCHAIN_PERPS_AGENT_OPERATOR_KEY env var takes precedence over key_file.
 #[operator]
 #key_file     = "operator.key"
 #capabilities = ["perps.execution", "perps.trading"]

@@ -20,9 +20,18 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
 )
 
-// KeyEnvVar overrides the configured key file, so deployments can inject the
-// operator key through the environment without writing it to disk.
-const KeyEnvVar = "SVPCHAIN_AGENT_OPERATOR_KEY"
+// KeyEnvVar overrides the configured key file, so a local run can supply the
+// operator key without writing it to disk.
+//
+// Named for this agent specifically, not the fleet: an agent's on-chain id
+// derives from its operator key, so two agents reading one shared variable
+// would be a single id claiming two cards. The deploy keeps their config
+// directories apart for the same reason; a fleet-wide name would undo it.
+//
+// Note the deploy does NOT use this. It ships the key as a docker compose
+// secret and points key_file at the mount, because a container environment
+// variable is visible in `docker inspect` and /proc/<pid>/environ.
+const KeyEnvVar = "SVPCHAIN_PERPS_AGENT_OPERATOR_KEY"
 
 // Load resolves the operator key: the environment variable first, then the
 // configured key file. Both absent means the agent runs keyless — (nil, "",
