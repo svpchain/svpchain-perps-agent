@@ -7,7 +7,6 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/builder"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/faucet"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/limits"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/markets"
@@ -33,11 +32,6 @@ type Deps struct {
 	Indexer *indexer.Client
 	Markets *markets.Cache
 	Builder *builder.Assembler
-
-	// Faucet is the HTTP client for the faucet backend (faucet_base_url).
-	// Nil when the server runs without faucet_base_url; the faucet tools
-	// check Faucet != nil and refuse otherwise.
-	Faucet *faucet.Client
 
 	Policy      *policy.Engine
 	Auditor     *policy.Auditor

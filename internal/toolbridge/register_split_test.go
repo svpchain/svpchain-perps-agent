@@ -29,7 +29,6 @@ func TestFamilyMethodsMatchTheFullTable(t *testing.T) {
 		SkillFunds:      func(r *Registry) { r.RegisterFunds(h) },
 		SkillBroadcast:  func(r *Registry) { r.RegisterBroadcast(h) },
 		SkillAuth:       func(r *Registry) { r.RegisterAuth(h) },
-		SkillFaucet:     func(r *Registry) { r.RegisterFaucet(h) },
 	}
 	for skill, register := range families {
 		r := NewEmpty()

@@ -38,7 +38,6 @@ type Profile struct {
 // PerpsSplit pins the partition.
 func RegisterDelegationStack(r *toolbridge.Registry, h *tools.Handlers, agent *agentchain.Service, exec *delegated.Service) {
 	r.RegisterAuth(h)
-	r.RegisterFaucet(h)
 	r.RegisterAgentChain(agent)
 	r.RegisterExecutionCore(exec)
 }

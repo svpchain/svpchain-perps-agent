@@ -4,7 +4,7 @@ The perpetuals-trading [A2A](https://a2aproject.github.io/A2A/) agent for
 SVP-Chain: a remote, server-side agent other agents call over the network.
 
 It serves market data, accounts, unsigned order and funds tx building, the
-Cosmos broadcast rail, self-service auth, faucet, the chain's `x/agent` /
+Cosmos broadcast rail, self-service auth, the chain's `x/agent` /
 `x/agentwallet` modules, and **delegated perps execution** under
 [SVP-DT](https://github.com/svpchain/svpdt) credentials.
 

@@ -18,7 +18,7 @@ var identity = a2aserver.CardIdentity{
 	Name:    "svpchain-perps-agent",
 	Version: "0.1.0",
 	Description: "Perpetuals-trading agent for the SVP-Chain DEX: market data, accounts, " +
-		"unsigned order and funds tx building, broadcast, self-service auth, faucet, " +
+		"unsigned order and funds tx building, broadcast, self-service auth, " +
 		"agent registry, delegations, and delegated perps execution under SVP-DT " +
 		"credentials.",
 }

@@ -35,7 +35,6 @@ var expectedOps = map[string][]string{
 	},
 	SkillBroadcast: {"broadcast_signed_tx", "get_tx_status"},
 	SkillAuth:      {"auth_challenge", "auth_verify"},
-	SkillFaucet:    {"list_faucet_tokens", "faucet_claim"},
 }
 
 // expectedChainOps pins the x/agent + x/agentwallet operation table.
@@ -117,10 +116,10 @@ func TestRegistryCoversEveryExpectedTool(t *testing.T) {
 			}
 		}
 	}
-	// 38 = the 64-tool MCP surface minus the 14 EVM and 12 Lendora tools this
-	// binary does not bridge.
-	if total != 38 {
-		t.Fatalf("expected table lists %d tools; the bridged surface is 38 — fix the table", total)
+	// 36 = the 64-tool MCP surface minus the 14 EVM and 12 Lendora tools this
+	// binary does not bridge, minus the 2 faucet tools it no longer serves.
+	if total != 36 {
+		t.Fatalf("expected table lists %d tools; the bridged surface is 36 — fix the table", total)
 	}
 
 	// The reverse direction: nothing extra is registered under these skills.

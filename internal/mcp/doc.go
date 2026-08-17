@@ -26,6 +26,15 @@
 // does not use, since internal/toolbridge bridges these same handlers onto A2A
 // operations instead.
 //
+// The faucet/ package and tools/faucet.go came across and were dropped later,
+// once removed from the surface entirely: what it dispenses is EVM-side and
+// testnet-only, and a credential can never reach it — a claim moves nothing of
+// the delegator's, so there is no action to narrow and no budget to debit.
+// Funding lives in svpchain-evm-agent. That removal changed the served card and
+// therefore the on-chain capability hash, which is a cost the next paragraph is
+// specifically about avoiding; it was paid deliberately, alongside a public_url
+// change that already required agent_self_update everywhere.
+//
 // Two behaviours changed shape but not observable result, because both were
 // already gated on an EVM client internal/config has no way to configure (the
 // [evm] section went away with df98513):
@@ -40,11 +49,13 @@
 // # Files that are not verbatim
 //
 // Everything here is byte-identical to the tag except its import paths, apart
-// from: tools/handlers.go and tools/tokens.go (symbols rescued from deleted
-// files, marked at their definition), tools/{account,market,deps}.go (the
-// prunes above), payload/payload.go and signer/signer.go (the EVM half of the
-// signer wire contract, which only the dropped tool families spoke), and the
-// comments — package docs that described a server this binary is not, and
+// from: tools/handlers.go (symbols rescued from deleted files, marked at their
+// definition), tools/tokens.go (the same, minus the three the faucet was the
+// last caller of — knownTokenSymbol, parseSwapToken, ownerEthAddress — pruned
+// when it went), tools/{account,market,deps}.go (the prunes above),
+// payload/payload.go and signer/signer.go (the EVM half of the signer wire
+// contract, which only the dropped tool families spoke), and the comments —
+// package docs that described a server this binary is not, and
 // cross-references that named the old lib/mcp path.
 //
 // The tree is also gofmt-clean, which upstream's is not (18 files differ there,

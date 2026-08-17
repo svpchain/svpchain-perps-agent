@@ -14,7 +14,6 @@ const (
 	SkillFunds         = "svpchain-funds"
 	SkillBroadcast     = "svpchain-broadcast"
 	SkillAuth          = "svpchain-auth"
-	SkillFaucet        = "svpchain-faucet"
 	SkillAgentRegistry = "svpchain-agent-registry"
 	SkillDelegation    = "svpchain-delegation"
 	SkillExecution     = "svpchain-execution"
@@ -87,12 +86,6 @@ func (r *Registry) RegisterAuth(h *tools.Handlers) {
 	r.add(SkillAuth, "auth_verify", adapt(h.AuthVerify))
 }
 
-// RegisterFaucet adds the testnet faucet.
-func (r *Registry) RegisterFaucet(h *tools.Handlers) {
-	r.add(SkillFaucet, "list_faucet_tokens", adapt(h.ListFaucetTokens))
-	r.add(SkillFaucet, "faucet_claim", adapt(h.FaucetClaim))
-}
-
 // New builds the full-surface operation registry over the MCP tool handlers —
 // every bridged family. The optional services (agent-registry / delegation
 // queries, delegated execution) are registered by their own Register*
@@ -105,6 +98,5 @@ func New(h *tools.Handlers) *Registry {
 	r.RegisterFunds(h)
 	r.RegisterBroadcast(h)
 	r.RegisterAuth(h)
-	r.RegisterFaucet(h)
 	return r
 }

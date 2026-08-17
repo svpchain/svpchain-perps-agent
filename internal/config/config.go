@@ -34,10 +34,6 @@ type Config struct {
 	// Defaults to "http://localhost"+ListenAddr when empty.
 	PublicURL string `toml:"public_url"`
 
-	// FaucetBaseURL is the faucet backend's HTTP base URL. Optional: when
-	// empty the faucet operations refuse.
-	FaucetBaseURL string `toml:"faucet_base_url"`
-
 	// TransferOutCapPath persists per-symbol daily transfer-out caps and the
 	// running tally to a JSON file. Optional: when empty the state is
 	// in-memory only and resets on restart. Relative paths resolve against

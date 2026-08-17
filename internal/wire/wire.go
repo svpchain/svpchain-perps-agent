@@ -27,7 +27,6 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/builder"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/faucet"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/limits"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/markets"
@@ -147,11 +146,6 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 	}
 	chainDeps.CometBft = cometClient
 
-	var faucetClient *faucet.Client
-	if cfg.FaucetBaseURL != "" {
-		faucetClient = faucet.NewClient(cfg.FaucetBaseURL, faucet.Options{})
-	}
-
 	idx := indexer.NewClient(cfg.DEXChain.IndexerBaseURL, indexer.Options{})
 	mkts := markets.NewCache(chainDeps.ClobQuery, chainDeps.PerpetualsQuery, time.Duration(cfg.Cache.MarketsRefresh), logger)
 
@@ -196,7 +190,6 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 		Indexer:           idx,
 		Markets:           mkts,
 		Builder:           builder.NewAssembler(cfg.DEXChain.ID, cfg.Fee.Denom, cfg.Fee.Amount, cfg.Fee.GasLimit),
-		Faucet:            faucetClient,
 		Policy:            policyEngine,
 		Auditor:           policy.NewStdoutAuditor(),
 		Idempotency:       policy.NewIdempotency(0),

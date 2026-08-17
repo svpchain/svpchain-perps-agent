@@ -75,8 +75,6 @@
 #   --operator-metadata <text>     SVPCHAIN_OPERATOR_METADATA
 #
 # Optional families and tuning:
-#   --faucet-url <url>             Empty → the faucet skills refuse.
-#                                  SVPCHAIN_FAUCET_URL
 #   --markets-refresh <dur>        Default 30s.  SVPCHAIN_MARKETS_REFRESH
 #   --deposit-max-usdc <n>         Caps on funds movements, in human USDC;
 #   --withdraw-max-usdc <n>        unset → no cap.
@@ -185,7 +183,7 @@ readonly CONFIG_VARS=(
   SVPCHAIN_INDEXER SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
   SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OPERATOR_KEY
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA SVPCHAIN_INSTALL_DIR
-  SVPCHAIN_FAUCET_URL SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
+  SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
   SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
   SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
 )
@@ -259,7 +257,6 @@ public_url="${SVPCHAIN_PERPS_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.or
 operator_key="${SVPCHAIN_PERPS_AGENT_OPERATOR_KEY:-}"
 operator_capabilities="${SVPCHAIN_OPERATOR_CAPABILITIES:-perps.execution,perps.trading}"
 operator_metadata="${SVPCHAIN_OPERATOR_METADATA:-}"
-faucet_url="${SVPCHAIN_FAUCET_URL:-https://pre-faucet.svpchain.org}"
 install_dir="${SVPCHAIN_INSTALL_DIR:-~/svpchain-perps-agent}"
 image_tag=""
 platform="linux/amd64"
@@ -283,7 +280,6 @@ while [[ $# -gt 0 ]]; do
     --public-url)             public_url="$2"; mark_flag SVPCHAIN_PERPS_AGENT_PUBLIC_URL;  shift 2 ;;
     --operator-capabilities)  operator_capabilities="$2"; mark_flag SVPCHAIN_OPERATOR_CAPABILITIES; shift 2 ;;
     --operator-metadata)      operator_metadata="$2"; mark_flag SVPCHAIN_OPERATOR_METADATA; shift 2 ;;
-    --faucet-url)             faucet_url="$2"; mark_flag SVPCHAIN_FAUCET_URL;        shift 2 ;;
     --install-dir)            install_dir="$2"; mark_flag SVPCHAIN_INSTALL_DIR;       shift 2 ;;
     --image-tag)              image_tag="$2";         shift 2 ;;
     --platform)               platform="$2";          shift 2 ;;
@@ -360,7 +356,6 @@ listen_addr      = "0.0.0.0:${AGENT_PORT}"
 public_url       = "${public_url}"
 broadcast_mode   = "server"
 EOF
-  [[ -n "$faucet_url" ]] && echo "faucet_base_url         = \"${faucet_url}\""
   # Persist per-symbol transfer-out caps on the agent's own writable data
   # volume (the config dir holds only read-only mounts) — the path is under the
   # agent's name because that is what the compose service mounts
@@ -652,7 +647,7 @@ if [[ "$mode" == "print-env" ]]; then
     SVPCHAIN_COMET_RPC SVPCHAIN_INDEXER SVPCHAIN_AGENT_CHAIN_ID
     SVPCHAIN_AGENT_CHAIN_REST SVPCHAIN_PERPS_AGENT_PUBLIC_URL
     SVPCHAIN_PERPS_AGENT_OPERATOR_KEY SVPCHAIN_OPERATOR_CAPABILITIES
-    SVPCHAIN_OPERATOR_METADATA SVPCHAIN_FAUCET_URL SVPCHAIN_MARKETS_REFRESH
+    SVPCHAIN_OPERATOR_METADATA SVPCHAIN_MARKETS_REFRESH
     SVPCHAIN_DEPOSIT_MAX_USDC SVPCHAIN_WITHDRAW_MAX_USDC
     SVPCHAIN_TRANSFER_MAX_USDC SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
     SVPCHAIN_INSTALL_DIR
@@ -662,7 +657,7 @@ if [[ "$mode" == "print-env" ]]; then
     "$comet_rpc" "$indexer" "$agent_chain_id"
     "$agent_chain_rest" "$public_url"
     "$operator_key" "$operator_capabilities"
-    "$operator_metadata" "$faucet_url" "$markets_refresh"
+    "$operator_metadata" "$markets_refresh"
     "$deposit_max" "$withdraw_max"
     "$transfer_max" "$daily_withdraw_cap"
     "$install_dir"

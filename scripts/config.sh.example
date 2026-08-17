@@ -70,9 +70,6 @@ SVPCHAIN_OPERATOR_METADATA="svpchain perps agent"
 
 # ---- optional families and tuning ------------------------------------------
 
-# Empty makes the faucet skills refuse with a reason.
-SVPCHAIN_FAUCET_URL="https://pre-faucet.svpchain.org"
-
 # How often the markets cache refreshes.
 #SVPCHAIN_MARKETS_REFRESH="30s"
 

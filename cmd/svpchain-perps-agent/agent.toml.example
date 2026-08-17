@@ -21,9 +21,6 @@ indexer_base_url = "http://127.0.0.1:3002"
 #id       = "svpagent-testnet-1"
 #rest_url = "http://127.0.0.1:1317"
 
-# Optional testnet faucet backend; unset, the faucet tools refuse.
-#faucet_base_url = "http://127.0.0.1:8088"
-
 # Caps on funds movements, in human USDC. Zero disables a check.
 [limits]
 deposit_max_usdc        = 1000

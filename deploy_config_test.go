@@ -50,20 +50,9 @@ func TestDeployScriptConfigParses(t *testing.T) {
 			"--print-config", "--host", "www@agent.example.com",
 			"--public-url", "https://agents.example.com",
 		},
-		// An optional family switched off must still yield a config that
-		// loads — the faucet skills then refuse at call time with a reason.
-		// The faucet is the only optional family this script renders: the
-		// EVM/bridge/lendora surface went with the multi-agent scaffolding,
-		// because wire.PerpsProfile builds no EVM clients and this binary
-		// never read it.
-		"faucet-off": {
-			"--print-config", "--host", "www@agent.example.com",
-			"--faucet-url", "",
-		},
-		// The other direction: every optional block the script can render, on
-		// at once, so a typo in one of those heredocs fails here rather than
-		// on a remote host. [agent_chain] is both-or-neither in core, which
-		// this also pins.
+		// Every optional block the script can render, on at once, so a typo in
+		// one of those heredocs fails here rather than on a remote host.
+		// [agent_chain] is both-or-neither in core, which this also pins.
 		"all-optionals": {
 			"--print-config", "--host", "www@agent.example.com",
 			"--agent-chain-id", "svp-agent-1",

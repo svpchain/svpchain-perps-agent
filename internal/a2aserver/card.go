@@ -99,12 +99,6 @@ var skillMetas = []skillMeta{
 		},
 	},
 	{
-		id:   toolbridge.SkillFaucet,
-		name: "SVP-Chain Faucet",
-		desc: "Testnet faucet: list claimable tokens and claim them to an address.",
-		tags: []string{"faucet", "testnet"},
-	},
-	{
 		id:   toolbridge.SkillAgentRegistry,
 		name: "SVP-Chain Agent Registry",
 		desc: "The chain's x/agent module: query registered agents (by id, operator, owner, " +
