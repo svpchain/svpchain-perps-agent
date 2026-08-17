@@ -132,12 +132,13 @@ func TestDeployScriptConfigParses(t *testing.T) {
 // The route and the card must agree. An agent advertises public_url inside its
 // Agent Card, a verifier fetches that URL to recompute the capability hash, and
 // nginx is what makes the URL resolve. If the location block and public_url
-// disagree on the path segment, the agent advertises a URL that 404s and reads
-// as unverified — with every process healthy and nothing in the logs.
+// disagree on the path, the agent advertises a URL that 404s and reads as
+// unverified — with every process healthy and nothing in the logs.
 //
-// Both come from the same two constants, AGENT_PORT and AGENT_SEGMENT, so this
-// asserts they stay wired to them rather than to two hand-maintained copies of
-// the same fact.
+// This agent hangs off the root of its own host: public_url is what was passed,
+// unmodified, and the nginx block is a plain `location /` to AGENT_PORT. So the
+// assertions are that no segment has crept back into the advertised URL and
+// that the block routes the root to the same port the config listens on.
 func TestDeployScriptNginxRouteMatchesConfig(t *testing.T) {
 	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
 	if err != nil {
@@ -166,23 +167,17 @@ func TestDeployScriptNginxRouteMatchesConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantSeg := strings.TrimPrefix(cfg.PublicURL, base) // "/perps"
-	if wantSeg == "" || wantSeg == cfg.PublicURL {
-		t.Fatalf("public_url %q does not extend the base %q with a path segment", cfg.PublicURL, base)
+	if cfg.PublicURL != base {
+		t.Fatalf("public_url = %q, want the URL passed in verbatim (%q)", cfg.PublicURL, base)
 	}
 	wantPort := cfg.ListenAddr[strings.LastIndex(cfg.ListenAddr, ":"):] // ":8082"
 
 	nginx := run("--print-nginx")
-	if want := "location " + wantSeg + "/ {"; !strings.Contains(nginx, want) {
-		t.Errorf("nginx block does not route the advertised path.\nwant %q\ngot:\n%s", want, nginx)
+	if want := "location / {"; !strings.Contains(nginx, want) {
+		t.Errorf("nginx block does not route the advertised root.\nwant %q\ngot:\n%s", want, nginx)
 	}
-	if want := "proxy_pass http://127.0.0.1" + wantPort + "/;"; !strings.Contains(nginx, want) {
+	if want := "proxy_pass http://127.0.0.1" + wantPort + ";"; !strings.Contains(nginx, want) {
 		t.Errorf("nginx block does not proxy to the configured port.\nwant %q\ngot:\n%s", want, nginx)
-	}
-	// Without the trailing slash on proxy_pass the prefix is forwarded, and the
-	// agent — which binds at root — 404s every request through the proxy.
-	if strings.Contains(nginx, "proxy_pass http://127.0.0.1"+wantPort+";") {
-		t.Error("proxy_pass must end in / so the path segment is stripped")
 	}
 }
 
@@ -202,7 +197,7 @@ func TestDeployScriptReadsConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	settings := "SVPCHAIN_DEPLOY_HOST=\"www@host.example.com\"\n" +
 		"SVPCHAIN_CHAIN_ID=\"svp-from-file-1\"\n" +
-		"SVPCHAIN_AGENT_PUBLIC_URL=\"https://agents.example.org\"\n" +
+		"SVPCHAIN_PERPS_AGENT_PUBLIC_URL=\"https://perps.example.org\"\n" +
 		"SVPCHAIN_MARKETS_REFRESH=\"90s\"\n" +
 		"SVPCHAIN_WITHDRAW_MAX_USDC=\"777\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.sh"), []byte(settings), 0o600); err != nil {
@@ -232,8 +227,8 @@ func TestDeployScriptReadsConfigFile(t *testing.T) {
 		if cfg.DEXChain.ID != "svp-from-file-1" {
 			t.Errorf("chain id = %q, want the file's", cfg.DEXChain.ID)
 		}
-		if cfg.PublicURL != "https://agents.example.org/perps" {
-			t.Errorf("public_url = %q, want the file's base + this agent's segment", cfg.PublicURL)
+		if cfg.PublicURL != "https://perps.example.org" {
+			t.Errorf("public_url = %q, want the file's value verbatim", cfg.PublicURL)
 		}
 	})
 

@@ -26,7 +26,7 @@ or Lendora surface, and no profile but perps.
 | | |
 |---|---|
 | Port | 8082 |
-| Advertised at | `<public-url>/perps` |
+| Advertised at | `<public-url>`, verbatim |
 | Image | `ghcr.io/svpchain/svpchain-perps-agent` |
 
 ## Running
@@ -42,7 +42,7 @@ go run ./cmd/svpchain-perps-agent -config cmd/svpchain-perps-agent/agent.toml
 
 ```sh
 ./scripts/deploy.sh --host www@host.example.com \
-  --public-url https://agents.svpchain.org
+  --public-url https://perps-agent.svpchain.org
 ```
 
 ### Settings in a file instead of flags
@@ -85,21 +85,22 @@ EVM surface, so there is nothing to configure and no `[evm]` schema to set.
 
 ## Behind the reverse proxy
 
-The agents share one host, each on its own path: this one answers at
-`<base>/perps` and listens on `127.0.0.1:8082`. Print its location block:
+This agent owns the host it advertises: it answers at the root of
+`SVPCHAIN_PERPS_AGENT_PUBLIC_URL` and listens on `127.0.0.1:8082`. Nothing is
+appended to that URL. Print its location block:
 
 ```sh
-./scripts/deploy.sh --public-url https://agents.svpchain.org --print-nginx
+./scripts/deploy.sh --public-url https://perps-agent.svpchain.org --print-nginx
 ```
 
-Nothing installs it. The server block it belongs in owns TLS and the base
-host, both shared with agents this repo must not know about — so paste it,
-then `nginx -t && systemctl reload nginx`.
+Nothing installs it. The server block it belongs in owns TLS and the host name,
+both outside this repo — so paste it, then
+`nginx -t && systemctl reload nginx`.
 
 The route is not cosmetic. `public_url` is advertised inside the Agent Card,
-and a verifier fetches that URL to recompute the capability hash; if nginx
-does not route `/perps` to this port the agent advertises a URL that 404s and
-reads as unverified, with every process healthy and nothing in the logs.
+and a verifier fetches that URL to recompute the capability hash; if nginx does
+not route that host to this port the agent advertises a URL that 404s and reads
+as unverified, with every process healthy and nothing in the logs.
 `TestDeployScriptNginxRouteMatchesConfig` pins the two together.
 
 ## The operator key

@@ -32,9 +32,9 @@ SVPCHAIN_INDEXER="http://127.0.0.1:3002"
 #SVPCHAIN_AGENT_CHAIN_ID="svpagent-testnet-1"
 #SVPCHAIN_AGENT_CHAIN_REST="http://127.0.0.1:1317"
 
-# The base URL callers reach the agents at. Each agent appends its own segment;
-# this one advertises <base>/perps.
-SVPCHAIN_AGENT_PUBLIC_URL="https://agents.svpchain.org"
+# The URL callers reach this agent at. Used verbatim — nothing is appended, so
+# it must be the URL your reverse proxy routes to this agent.
+SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
 
 # ---- this agent's identity -------------------------------------------------
 
