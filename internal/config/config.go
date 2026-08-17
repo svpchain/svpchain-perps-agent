@@ -1,6 +1,8 @@
 // Package config is this agent's configuration, loaded from a TOML file.
 //
-// The schema is adapted from svpchain-mcp's cmd/mcp-server config: the same
+// The schema was adapted from svpchain-mcp's cmd/mcp-server config — a
+// historical origin, not a live dependency, now that internal/mcp is a fork
+// rather than a module require (see internal/mcp/doc.go): the same
 // network endpoints, the same all-or-nothing rules for optional families, and
 // the same graceful degradation — an unset optional family means those
 // operations refuse at call time with a reason, and the agent still boots. On

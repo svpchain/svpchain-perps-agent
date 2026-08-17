@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/indexer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 )
 
 // Service answers the read-layer questions from public indexer data.

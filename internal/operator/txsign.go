@@ -13,9 +13,9 @@ import (
 
 	clobtypes "github.com/dydxprotocol/v4-chain/protocol/x/clob/types"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/builder"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/chain"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/payload"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/builder"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/payload"
 )
 
 // FeeSpec is the fee stamped onto fee-paying (non-short-term-CLOB) txs,

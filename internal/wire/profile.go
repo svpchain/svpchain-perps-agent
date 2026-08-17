@@ -1,7 +1,7 @@
 package wire
 
 import (
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
 	"github.com/svpchain/svpchain-perps-agent/internal/delegated"

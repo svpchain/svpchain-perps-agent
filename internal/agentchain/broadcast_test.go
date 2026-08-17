@@ -13,11 +13,11 @@ import (
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/chain"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/mcpcodec"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/payload"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/policy"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/mcpcodec"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/payload"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 )
 
 type fakeBroadcast struct {

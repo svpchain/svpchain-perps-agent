@@ -26,12 +26,12 @@ import (
 	perptypes "github.com/dydxprotocol/v4-chain/protocol/x/perpetuals/types"
 	"github.com/svpchain/svpdt"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/chain"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/markets"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/payload"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/policy"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/signer"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/markets"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/payload"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/signer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
 	"github.com/svpchain/svpchain-perps-agent/internal/operator"

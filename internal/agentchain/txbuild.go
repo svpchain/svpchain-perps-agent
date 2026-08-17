@@ -11,8 +11,8 @@ import (
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 	wallettypes "github.com/dydxprotocol/v4-chain/protocol/x/agentwallet/types"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/builder"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/payload"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/builder"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/payload"
 )
 
 // Every build operation shares one contract, mirroring the MCP builders: the

@@ -15,7 +15,7 @@ import (
 	"math/big"
 	"sort"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/indexer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 )
 
 // Side is which way a taker order crosses the book.

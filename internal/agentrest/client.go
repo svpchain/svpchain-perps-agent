@@ -29,7 +29,7 @@ import (
 	wallettypes "github.com/dydxprotocol/v4-chain/protocol/x/agentwallet/types"
 	settlementtypes "github.com/dydxprotocol/v4-chain/protocol/x/settlement/types"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/chain"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
 )
 
 // Client implements the agent-chain surface over REST. It satisfies

@@ -12,7 +12,7 @@ import (
 	wallettypes "github.com/dydxprotocol/v4-chain/protocol/x/agentwallet/types"
 	sendingtypes "github.com/dydxprotocol/v4-chain/protocol/x/sending/types"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/limits"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/limits"
 )
 
 // depositProof mints a credential that grants the deposit action on

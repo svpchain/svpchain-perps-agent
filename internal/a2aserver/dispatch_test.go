@@ -13,10 +13,10 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/cosmos/evm/crypto/ethsecp256k1"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/auth"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/policy"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/signer"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/signer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"

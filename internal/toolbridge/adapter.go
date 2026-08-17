@@ -1,5 +1,5 @@
-// Package toolbridge exposes svpchain-mcp's MCP tool handlers — and the
-// agent's own chain-module services — as A2A operations.
+// Package toolbridge exposes the MCP tool handlers in internal/mcp/tools — and
+// the agent's own chain-module services — as A2A operations.
 //
 // Every MCP handler shares one shape, func(ctx, *mcp.CallToolRequest, In)
 // (*mcp.CallToolResult, Out, error), and none of them reads the request
@@ -31,7 +31,7 @@ type Op struct {
 	Call  func(ctx context.Context, args json.RawMessage) (any, error)
 }
 
-// handler is the uniform svpchain-mcp tool handler shape.
+// handler is the uniform tool handler shape every internal/mcp/tools method has.
 type handler[In, Out any] func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error)
 
 // adapt wraps an MCP tool handler into an Op call. The nil CallToolRequest is

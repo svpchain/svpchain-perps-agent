@@ -22,10 +22,10 @@ import (
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 	wallettypes "github.com/dydxprotocol/v4-chain/protocol/x/agentwallet/types"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/builder"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/chain"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/policy"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/builder"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 )
 
 // AgentQuerier is the slice of the generated x/agent QueryClient the service

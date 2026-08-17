@@ -16,12 +16,12 @@ import (
 	wallettypes "github.com/dydxprotocol/v4-chain/protocol/x/agentwallet/types"
 	"github.com/svpchain/svpdt"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/builder"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/chain"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/limits"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/markets"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/policy"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/builder"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/limits"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/markets"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
 	"github.com/svpchain/svpchain-perps-agent/internal/operator"

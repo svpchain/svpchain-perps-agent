@@ -3,7 +3,7 @@ package marketdata_test
 import (
 	"testing"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/indexer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
 )

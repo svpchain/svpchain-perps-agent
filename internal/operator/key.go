@@ -15,7 +15,7 @@ import (
 
 	"github.com/cosmos/evm/crypto/ethsecp256k1"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/signer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/signer"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
 )

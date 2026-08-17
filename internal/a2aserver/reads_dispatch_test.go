@@ -20,11 +20,11 @@ import (
 	wallettypes "github.com/dydxprotocol/v4-chain/protocol/x/agentwallet/types"
 	"github.com/svpchain/svpdt"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/auth"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/indexer"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/policy"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/signer"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/signer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/delegated"
 	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"

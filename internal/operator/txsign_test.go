@@ -10,9 +10,9 @@ import (
 	"github.com/cosmos/evm/crypto/ethsecp256k1"
 	"github.com/cosmos/gogoproto/proto"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/chain"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/payload"
-	"github.com/svpchain/svpchain-mcp/lib/mcp/signer"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/payload"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/signer"
 )
 
 func newKey(t *testing.T) *ethsecp256k1.PrivKey {

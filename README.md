@@ -13,8 +13,15 @@ Everything above is implemented under `internal/`, which was the shared
 `cmd/svpchain-perps-agent` composes it — `wire.PerpsProfile` selects the
 operation families, and `card.go` declares this agent's public identity.
 
-Being the only consumer, the vendored copy was pruned to what this binary
-serves: no EVM DeFi or Lendora surface, and no profile but perps.
+`internal/mcp` is a second such absorption: `svpchain-mcp`'s `lib/mcp` at tag
+`v0.1.0`, the MCP tool handlers the A2A bridge dispatches into, plus the chain
+clients, tx builders and policy engine under them. Unlike agent-core that repo
+is still live — the EVM, lending and research agents keep importing it — so
+this copy is a fork, kept diffable against the tag. `internal/mcp/doc.go` has
+the details and the re-sync recipe.
+
+Both copies were pruned to what this binary serves: no EVM DeFi, swap, bridge
+or Lendora surface, and no profile but perps.
 
 | | |
 |---|---|
@@ -151,6 +158,9 @@ every one of protocol's verbatim; `deps_test.go` diffs the two on every
 `go test ./...`, so drift fails loudly instead of resolving upstream cosmos and
 erroring somewhere unrelated.
 
-`internal/` is the former `svpchain-agent-core`. The sibling agent repos
-(`evm`, `lending`, `research`) still import that module and are unaffected by
-this copy; they need their own migration before it can be deleted.
+`internal/` is the former `svpchain-agent-core` and `internal/mcp` the former
+`svpchain-mcp/lib/mcp`. The sibling agent repos (`evm`, `lending`, `research`)
+still import both modules and are unaffected by these copies; agent-core needs
+their migration before it can be deleted, and `svpchain-mcp` is not going away
+at all — it still ships `cmd/mcp-server`. Fixes landing there do not reach
+`internal/mcp` on their own.

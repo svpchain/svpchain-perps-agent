@@ -7,13 +7,16 @@ require (
 	cosmossdk.io/math v1.5.3
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c
 	github.com/a2aproject/a2a-go/v2 v2.3.1
+	github.com/cometbft/cometbft v0.38.21
 	github.com/cosmos/cosmos-sdk v0.50.11
 	github.com/cosmos/evm v0.0.0-00010101000000-000000000000
 	github.com/cosmos/gogoproto v1.7.2
 	github.com/dydxprotocol/v4-chain/protocol v0.0.0-00010101000000-000000000000
+	github.com/ethereum/go-ethereum v1.15.11
 	github.com/modelcontextprotocol/go-sdk v1.0.0
-	github.com/svpchain/svpchain-mcp v0.1.0
+	github.com/stretchr/testify v1.11.1
 	github.com/svpchain/svpdt v0.2.0
+	golang.org/x/time v0.12.0
 	google.golang.org/grpc v1.80.0
 )
 
@@ -77,7 +80,6 @@ require (
 	github.com/cockroachdb/pebble v1.1.5 // indirect
 	github.com/cockroachdb/redact v1.1.6 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
-	github.com/cometbft/cometbft v0.38.21 // indirect
 	github.com/cometbft/cometbft-db v0.15.0 // indirect
 	github.com/consensys/gnark-crypto v0.18.0 // indirect
 	github.com/cosmos/btcutil v1.0.5 // indirect
@@ -110,7 +112,6 @@ require (
 	github.com/envoyproxy/go-control-plane/envoy v1.36.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.0 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
-	github.com/ethereum/go-ethereum v1.15.11 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
@@ -245,7 +246,6 @@ require (
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/supranational/blst v0.3.14 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
@@ -292,7 +292,6 @@ require (
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
-	golang.org/x/time v0.12.0 // indirect
 	google.golang.org/api v0.247.0 // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260427160629-7cedc36a6bc4 // indirect
@@ -313,8 +312,9 @@ require (
 // this at ../svpchain-main/protocol once that branch merges.
 replace github.com/dydxprotocol/v4-chain/protocol => ../svpagent/protocol
 
-// The replace blocks below are copied VERBATIM from protocol/go.mod (same
-// copies live in svpchain-mcp/go.mod). Go does not apply a dependency module's
+// The replace blocks below are copied VERBATIM from protocol/go.mod, which is
+// their single source of truth (deps_test.go diffs them against it on every
+// `go test ./...`). Go does not apply a dependency module's
 // own replace directives, so any module depending on the protocol module (a
 // Cosmos chain, with its forks of cosmos-sdk, cometbft, cosmos/evm, iavl, etc.)
 // MUST redeclare them or the build resolves the upstream modules and fails.

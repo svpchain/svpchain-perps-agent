@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/svpchain/svpchain-mcp/lib/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 )
 
 // The per-family registration methods exist so per-category binaries can
