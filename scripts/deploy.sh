@@ -102,6 +102,14 @@
 #                                  already configured: a key is an on-chain
 #                                  identity with a bond against it, so a second
 #                                  one is a new agent, not a replacement.
+#   --register                     Put the DEPLOYED agent on chain, by calling
+#                                  agent_self_register on it over its public URL
+#                                  — or agent_self_update when it is already
+#                                  registered and the served card or the endpoint
+#                                  has moved since. Idempotent: an agent that is
+#                                  already current is left alone.
+#   --bond <coin>                  --register only. Initial bond, e.g.
+#                                  1500000usvp. Default: the module's MinBond.
 #   --print-env                    Show every setting, its resolved value and
 #                                  where it came from. The operator key prints as
 #                                  "set"/"unset", never its value.
@@ -111,6 +119,7 @@
 # Examples:
 #   ./scripts/deploy.sh --init-config       # then edit the file it names
 #   ./scripts/deploy.sh --gen-operator-key  # mint an identity, print its address
+#   ./scripts/deploy.sh --register          # put the deployed agent on chain
 #   ./scripts/deploy.sh                     # a configured install takes no flags
 #   ./scripts/deploy.sh --host www@svpdev1.example.com \
 #     --public-url https://perps-agent.svpchain.org
@@ -244,8 +253,9 @@ fi
 
 # ---- args ------------------------------------------------------------------
 
-mode="install"        # install | uninstall | init-config | print-env
-                      #         | print-config | print-compose | print-nginx
+mode="install"        # install | uninstall | init-config | gen-operator-key
+                      #         | register | print-env | print-config
+                      #         | print-compose | print-nginx
 
 # Settings a flag overrode, so --print-env can say so. Same space-padded-string
 # trick as ENV_PRESET, for the same bash 3.2 reason.
@@ -277,6 +287,11 @@ daily_withdraw_cap="${SVPCHAIN_DAILY_WITHDRAW_CAP_USDC:-}"
 markets_refresh="${SVPCHAIN_MARKETS_REFRESH:-30s}"
 skip_build="0"
 dry_run="0"
+# --register only. Deliberately not a config setting: the bond is a decision
+# made once, at registration, not a property of every deploy — and empty takes
+# the x/agent module's own MinBond, which is the right answer for almost
+# everyone.
+register_bond=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -304,6 +319,8 @@ while [[ $# -gt 0 ]]; do
     --no-config)              shift ;;
     --init-config)            mode="init-config";     shift ;;
     --gen-operator-key)       mode="gen-operator-key"; shift ;;
+    --register)               mode="register";        shift ;;
+    --bond)                   register_bond="$2";     shift 2 ;;
     --print-env)              mode="print-env";       shift ;;
     --skip-build)             skip_build="1";         shift ;;
     --print-config)           mode="print-config";    shift ;;
@@ -730,8 +747,53 @@ if [[ "$mode" == "gen-operator-key" ]]; then
   info "Back up the key file. It is this agent's identity: lose it and the"
   info "on-chain registration and its bond are unreachable, and a new key is a"
   info "different agent rather than a recovery."
-  info "Next: fund ${operator_addr} with the bond plus gas, deploy, then call"
-  info "agent_self_register on the running agent (see the README)."
+  info "Next: fund ${operator_addr} with the bond plus gas, deploy, then"
+  info "./scripts/deploy.sh --register"
+  exit 0
+fi
+
+# ---- mode: register -------------------------------------------------------
+#
+# Put the deployed agent on chain, or bring an already-registered one back in
+# line with what it now serves.
+#
+# This cannot be a local operation. What gets published is the sha256 of the
+# agent card as SERVED, so the thing that registers has to be a running agent
+# answering at a URL — hence agent_self_register is a tool on the A2A surface,
+# and this mode is a client of the agent it just deployed rather than another
+# renderer of local state.
+#
+# It runs against $public_url deliberately, not over the ssh connection. That
+# URL is what goes into the registration and what a verifier will fetch, so a
+# registration that succeeds through it has proven the route as a side effect.
+# A host that DNS or nginx does not point here fails at this step instead of
+# registering an endpoint that 404s — see cmd/agent-register for the loopback
+# escape hatch when that is genuinely wanted.
+#
+# The key travels in the environment of the child process rather than in argv,
+# where `ps` would show it. It signs only the auth challenge that proves the
+# caller is the operator; the transaction itself is signed by the agent, on the
+# remote, with the copy the deploy shipped as a compose secret.
+if [[ "$mode" == "register" ]]; then
+  require_cmd go
+  resolve_operator_key
+  [[ -n "$operator_key" ]] \
+    || fail "no operator key configured — registration is the operator proving it holds the key this agent runs as (see --gen-operator-key)"
+
+  repo_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  step "Registering ${AGENT_NAME} at ${public_url}"
+  # A subshell so the export and the cd die with it. GOWORK=off matches the
+  # Makefile: a go.work in the parent directory would resolve this module from
+  # sibling checkouts rather than the versions go.mod pins.
+  (
+    cd "$repo_dir" || exit 1
+    export SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$operator_key"
+    if [[ -n "$register_bond" ]]; then
+      GOWORK=off go run ./cmd/agent-register -url "$public_url" -bond "$register_bond"
+    else
+      GOWORK=off go run ./cmd/agent-register -url "$public_url"
+    fi
+  ) || fail "registration failed"
   exit 0
 fi
 
@@ -1003,3 +1065,12 @@ else
 fi
 
 step "Done — $AGENT_NAME $image_tag running on $host (:${AGENT_PORT}, advertised at $public_url)"
+
+# Deploying does not touch the chain, and a card change that never reaches the
+# registry is the failure this line exists to prevent: verifiers recompute the
+# capability hash from a live fetch, so an agent serving a card that no longer
+# matches its registration reads as unverified with every process healthy.
+if [[ -n "$operator_key" ]]; then
+  info "If the card or the public URL changed, publish it:"
+  info "  ./scripts/deploy.sh --register    (also does the first registration)"
+fi

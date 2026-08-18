@@ -150,11 +150,56 @@ binary's card, so two agents sharing a key collide on one registry record and
 overwrite each other's capability hash. Fund the key's address before
 registering: the bond, plus gas for delegated execution.
 
+## Putting it on chain
+
+Registration is not a deploy step and cannot be one. What gets published is the
+sha256 of the agent card **as served**, so the thing that registers has to be a
+running agent answering at a URL — which is why `agent_self_register` is a tool
+on the A2A surface rather than a subcommand of the binary. Deploy first, then:
+
+```sh
+./scripts/deploy.sh --register
+```
+
+That authenticates as the operator over the ordinary `auth_challenge` /
+`auth_verify` flow — the key signs the challenge, nothing else; the transaction
+itself is signed by the agent, on the remote, with the copy the deploy shipped
+as a compose secret — and then calls the right operation for the state it finds:
+
+| state | call |
+|---|---|
+| not registered | `agent_self_register` (`--bond` overrides the module's `MinBond`) |
+| registered, card hash moved | `agent_self_update` |
+| registered, endpoint moved | `agent_self_update` |
+| registered and current | nothing, and it says so |
+
+Both drifts are otherwise silent. A stale capability hash makes verifiers read
+the agent as unverified while every process is healthy; a stale endpoint points
+them at a URL that may no longer answer. The endpoint is a separate case
+because the capability hash does not cover it — a card that never changed can
+still be registered against a host name that has.
+
+It runs against the **public URL**, not over the ssh connection, on purpose:
+that URL is what goes into the registration and what a verifier will fetch, so
+a registration that succeeds through it has proven the route as a side effect.
+Before anything is signed it fetches the card and checks its sha256 against the
+hash the agent says it would publish — the same comparison a verifier makes
+later, so a proxy rewriting the body or a URL reaching a different process is
+caught here rather than becoming an on-chain claim nobody can verify.
+
+`cmd/agent-register` is the client underneath. Run it directly to reach the
+agent some other way — over an ssh tunnel before DNS is live, say:
+
+```sh
+SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=… go run ./cmd/agent-register -url http://127.0.0.1:8082
+```
+
 ## The agent card is an interface
 
 The served card's bytes are hashed into this agent's on-chain registration, and
 verifiers recompute that hash from a live fetch. `card.go` is therefore
-load-bearing: change it and every deployment must run `agent_self_update`.
+load-bearing: change it and every deployment must run `agent_self_update` —
+which is what `./scripts/deploy.sh --register` does when it sees the drift.
 `cmd/svpchain-perps-agent/testdata/card.json` is a golden that makes such a
 change deliberate rather than accidental — including when the skill text under
 `internal/a2aserver` changes, which moves the card just as surely.

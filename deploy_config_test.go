@@ -530,3 +530,26 @@ func TestDeployScriptGeneratesAnOperatorKey(t *testing.T) {
 		t.Error("the refused second run still modified the key file")
 	}
 }
+
+// --register is the operator proving it holds the key the agent runs as, so a
+// keyless invocation has nothing to prove with. It must say that rather than
+// shelling out and failing somewhere less legible.
+func TestRegisterRefusesWithoutAnOperatorKey(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	cmd := exec.Command("bash", script, "--no-config", "--register")
+	cmd.Env = append(os.Environ(), envKey+"=")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("--register succeeded with no operator key:\n%s", out)
+	}
+	if !strings.Contains(string(out), "no operator key") {
+		t.Errorf("the refusal does not name the missing key:\n%s", out)
+	}
+}
