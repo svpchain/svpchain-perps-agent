@@ -435,3 +435,98 @@ func TestPrintEnvRedactsTheOperatorKey(t *testing.T) {
 		t.Errorf("--print-env should report a missing key as unset:\n%s", out)
 	}
 }
+
+// --gen-operator-key mints this agent's identity and wires the config file to
+// it in one step. The halves have to stay together: a key nothing references
+// deploys keyless and says nothing, while a config line naming a key that was
+// never created fails the *source* and takes every other mode down with it.
+//
+// Slower than its neighbours — it shells out to `go run ./cmd/operator-keygen`
+// — but the build cache is warm by the time this runs under `go test ./...`.
+func TestDeployScriptGeneratesAnOperatorKey(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+	// A developer's own exported key would otherwise look like "already
+	// configured" and turn every assertion below into a refusal.
+	t.Setenv(envKey, "")
+
+	dir := filepath.Join(t.TempDir(), "cfg")
+	run := func(t *testing.T, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("bash", append([]string{script, "--config-dir", dir}, args...)...)
+		cmd.Env = append(os.Environ(), envKey+"=")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("deploy.sh %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+
+	// Bootstrapped through --init-config rather than a hand-written stub, so
+	// this exercises the template that actually ships — including the
+	// commented key line the rewrite is supposed to land on.
+	run(t, "--init-config")
+	out := run(t, "--gen-operator-key")
+
+	keyPath := filepath.Join(dir, "operator.key")
+	fi, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatalf("no key file written: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("key file mode = %04o, want 0600", perm)
+	}
+
+	// The agent must be able to boot on what the deploy wrote, and the address
+	// the script printed must be the one that key derives — it is what the
+	// operator funds the bond to before agent_self_register.
+	priv, addr, err := operator.Load(config.Operator{KeyFile: keyPath})
+	if err != nil || priv == nil {
+		t.Fatalf("the agent cannot load the generated key: %v", err)
+	}
+	if !strings.Contains(out, addr) {
+		t.Errorf("--gen-operator-key did not print the address to fund (%s):\n%s", addr, out)
+	}
+
+	// The key is written, never printed: stdout here becomes scrollback and CI
+	// logs.
+	raw, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := strings.TrimSpace(string(raw))
+	if strings.Contains(out, key) {
+		t.Error("--gen-operator-key printed the key material")
+	}
+	if envOut := run(t, "--print-env"); strings.Contains(envOut, key) {
+		t.Error("--print-env printed the generated key")
+	} else if !strings.Contains(envOut, "set (64 chars)") {
+		t.Errorf("the config file does not resolve to the generated key:\n%s", envOut)
+	}
+
+	// And the deploy now renders an [operator] block, which is the whole point
+	// of having generated one.
+	if cfgOut := run(t, "--print-config", "--host", "www@agent.example.com"); !strings.Contains(cfgOut, "[operator]") {
+		t.Errorf("rendered config has no [operator] block after key generation:\n%s", cfgOut)
+	}
+
+	// A second run must refuse. The key is an on-chain identity with a bond
+	// posted against it; replacing one silently would strand both.
+	cmd := exec.Command("bash", script, "--config-dir", dir, "--gen-operator-key")
+	cmd.Env = append(os.Environ(), envKey+"=")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Errorf("a second --gen-operator-key succeeded:\n%s", out)
+	}
+	again, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(raw) {
+		t.Error("the refused second run still modified the key file")
+	}
+}

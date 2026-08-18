@@ -64,6 +64,8 @@
 #                                  shell history. Set it in the config file, which
 #                                  is sourced and can therefore compute it:
 #                                    SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(op read …)"
+#                                  Or let --gen-operator-key mint one and wire the
+#                                  config file to it.
 #                                  Unset → keyless, and the execution skills refuse
 #                                  with a reason. Set, it ships to the remote as a
 #                                  docker compose SECRET mounted at
@@ -93,6 +95,13 @@
 # Modes:
 #   --init-config                  Write a starter config file to the config dir
 #                                  at 0600 and exit. Refuses to overwrite.
+#   --gen-operator-key             Mint this agent's operator key into the config
+#                                  dir at 0600, point the config file at it, and
+#                                  print the svp1… address to fund. The key is
+#                                  written, never printed. Refuses if one is
+#                                  already configured: a key is an on-chain
+#                                  identity with a bond against it, so a second
+#                                  one is a new agent, not a replacement.
 #   --print-env                    Show every setting, its resolved value and
 #                                  where it came from. The operator key prints as
 #                                  "set"/"unset", never its value.
@@ -101,6 +110,7 @@
 #
 # Examples:
 #   ./scripts/deploy.sh --init-config       # then edit the file it names
+#   ./scripts/deploy.sh --gen-operator-key  # mint an identity, print its address
 #   ./scripts/deploy.sh                     # a configured install takes no flags
 #   ./scripts/deploy.sh --host www@svpdev1.example.com \
 #     --public-url https://perps-agent.svpchain.org
@@ -293,6 +303,7 @@ while [[ $# -gt 0 ]]; do
     --config-dir)             mark_flag SVPCHAIN_CONFIG_DIR; shift 2 ;;
     --no-config)              shift ;;
     --init-config)            mode="init-config";     shift ;;
+    --gen-operator-key)       mode="gen-operator-key"; shift ;;
     --print-env)              mode="print-env";       shift ;;
     --skip-build)             skip_build="1";         shift ;;
     --print-config)           mode="print-config";    shift ;;
@@ -626,6 +637,101 @@ if [[ "$mode" == "init-config" ]]; then
   step "Wrote ${dst} (mode 600)"
   info "Edit it — at minimum SVPCHAIN_DEPLOY_HOST and SVPCHAIN_PERPS_AGENT_PUBLIC_URL —"
   info "then run ./scripts/deploy.sh"
+  info "For delegated execution this agent also needs an operator key:"
+  info "  ./scripts/deploy.sh --gen-operator-key"
+  exit 0
+fi
+
+# ---- mode: gen-operator-key -----------------------------------------------
+#
+# Mint this agent's operator key and point the config file at it. One step, on
+# purpose: a key generated and not referenced deploys keyless and says nothing,
+# while a config line naming a key that was never generated fails the *source*
+# and takes every other mode down with it — which is exactly why the template
+# ships that line commented out.
+#
+# The key material never passes through this script. cmd/operator-keygen
+# creates the file itself with O_EXCL at 0600 and prints only the derived
+# address, so the secret is never in a shell variable, in argv, or in `set -x`
+# output. What comes back is the one thing needed next: the address to fund.
+#
+# Every refusal below is about the same fact. The key IS this agent's on-chain
+# identity — agent_self_register derives the agent id from it and bonds funds
+# against it — so replacing one strands a registration and its bond with
+# nothing on either side reporting a fault. There is deliberately no --force:
+# an operator who really means to start over deletes the file, which is a
+# harder thing to do by accident than passing a flag.
+#
+# Runs before require_install_args for the same reason init-config does:
+# bootstrapping an identity needs no host.
+if [[ "$mode" == "gen-operator-key" ]]; then
+  key_file="${config_dir}/operator.key"
+  config_file="${config_dir}/config.sh"
+
+  # --no-config asks the script to ignore the file this mode's whole second
+  # half writes to, so there is no coherent thing to do.
+  [[ "$use_config" == "1" ]] \
+    || fail "--gen-operator-key wires up the config file, so it cannot run with --no-config"
+  require_cmd go
+
+  # Already keyed, from whichever layer — --print-env names it. Includes the
+  # case where the key came from the environment for this one invocation, which
+  # is still an identity this agent may be registered under.
+  if [[ -n "$operator_key" ]]; then
+    fail "an operator key is already configured (--print-env says from where) — generating another would be a second identity, not a replacement"
+  fi
+  if [[ -e "$key_file" ]]; then
+    fail "refusing to overwrite ${key_file} — that key may already be registered on chain, with a bond posted against it; move it aside first if you truly mean to start over"
+  fi
+  if [[ ! -f "$config_file" ]]; then
+    fail "no config file at ${config_file} — run ./scripts/deploy.sh --init-config first"
+  fi
+  # Catches what the $operator_key check above cannot: a live assignment whose
+  # command substitution resolved to nothing (an `op read` against a vault that
+  # is not unlocked, say). Rewriting that line would throw away the operator's
+  # own key source.
+  if grep -q '^SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=' "$config_file"; then
+    fail "${config_file} already assigns SVPCHAIN_PERPS_AGENT_OPERATOR_KEY (it resolved to nothing — a locked vault?); fix or remove that line first"
+  fi
+
+  mkdir -p "$config_dir" || fail "could not create ${config_dir}"
+  repo_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  # GOWORK=off matches the Makefile: a go.work in the parent directory would
+  # resolve this module from sibling checkouts rather than the pinned versions.
+  # stdout is the address and nothing else; the key went to the file.
+  operator_addr="$(cd "$repo_dir" && GOWORK=off go run ./cmd/operator-keygen -out "$key_file")" \
+    || fail "key generation failed; ${key_file} was not written"
+
+  # Rewrite rather than append, so a second run cannot leave two assignments
+  # with the last one silently winning. The pattern is deliberately tight —
+  # an optional '#' immediately followed by the name — because the template
+  # carries indented `#   SVPCHAIN_…_OPERATOR_KEY="$(op read …)"` lines as
+  # documentation, and rewriting one of those would eat the docs and leave the
+  # real line untouched.
+  key_line="SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=\"\$(cat \"${key_file}\")\""
+  tmp_config="${config_file}.gen.$$"
+  (
+    umask 077
+    awk -v line="$key_line" '
+      /^#?SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=/ && !seen { print line; seen = 1; next }
+      { print }
+      END { if (!seen) { print ""; print line } }
+    ' "$config_file" > "$tmp_config"
+  ) || { rm -f "$tmp_config"; fail "could not rewrite ${config_file}"; }
+  # mv rather than an in-place edit: the config file is never a half-written
+  # file that the next deploy would source.
+  mv "$tmp_config" "$config_file" || { rm -f "$tmp_config"; fail "could not replace ${config_file}"; }
+  chmod 600 "$config_file"
+
+  step "Operator key created"
+  pass "key     ${key_file} (mode 600)"
+  pass "address ${operator_addr}"
+  pass "config  ${config_file} now reads the key from that file"
+  info "Back up the key file. It is this agent's identity: lose it and the"
+  info "on-chain registration and its bond are unreachable, and a new key is a"
+  info "different agent rather than a recovery."
+  info "Next: fund ${operator_addr} with the bond plus gas, deploy, then call"
+  info "agent_self_register on the running agent (see the README)."
   exit 0
 fi
 

@@ -9,6 +9,7 @@
 package operator
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -53,4 +54,28 @@ func Load(cfg config.Operator) (*ethsecp256k1.PrivKey, string, error) {
 		return nil, "", fmt.Errorf("parse operator key: %w", err)
 	}
 	return priv, signer.DeriveAddress(priv), nil
+}
+
+// Generate mints a fresh operator key, returning it in exactly the form Load
+// reads — 64 lowercase hex characters, no 0x — together with the svp1… address
+// it derives.
+//
+// The address is the reason this returns two values rather than one. It is
+// where the bond and the gas have to land before agent_self_register can
+// succeed, and it cannot be recovered from the key by looking at it: the
+// derivation is keccak, then bech32 with the chain's prefix. Minting a key
+// without being told its address leaves the operator with a secret and no way
+// to fund it short of booting the agent and asking agent_identity.
+//
+// Every call yields a different key, and a key IS an identity here: the agent
+// id derives from it and agent_self_register bonds funds against it. Replacing
+// a key an agent already registered under strands that registration and its
+// bond — so callers that persist the result must refuse to overwrite, rather
+// than treating this as a regenerable artifact.
+func Generate() (hexKey, addr string, err error) {
+	priv, err := ethsecp256k1.GenerateKey()
+	if err != nil {
+		return "", "", fmt.Errorf("generate operator key: %w", err)
+	}
+	return hex.EncodeToString(priv.Key), signer.DeriveAddress(priv), nil
 }

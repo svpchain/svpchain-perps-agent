@@ -115,6 +115,20 @@ precedence. The variable is named for *this* agent rather than the fleet, for
 the same reason the config directory is: one shared name across agents is one
 id claiming several cards.
 
+If you have no key yet, mint one:
+
+```sh
+./scripts/deploy.sh --gen-operator-key
+```
+
+It writes `operator.key` into the config dir at 0600, rewrites `config.sh` to
+read the key from there, and prints the `svp1…` address — which is the part you
+cannot work out by looking at the key, and the address the bond and gas must be
+funded to. The key itself is written, never printed. A second run refuses:
+a key is an on-chain identity with a bond posted against it, so another one is
+a new agent, not a replacement. Back that file up — losing it strands the
+registration and the bond, and generating a fresh key is not a recovery.
+
 For a deploy the key goes in `config.sh` as
 `SVPCHAIN_PERPS_AGENT_OPERATOR_KEY`, holding the hex itself rather than a path.
 There is no flag for it — a key in `argv` shows up in `ps` and in your shell

@@ -54,6 +54,10 @@ SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
 #
 #   SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(cat "$HOME/.config/svpchain-perps-agent/operator.key")"
 #
+# If you have no key yet, `./scripts/deploy.sh --gen-operator-key` mints one
+# into that file, rewrites the line below to read it, and prints the svp1…
+# address to fund — which is the part you cannot work out from the key itself.
+#
 # The deploy ships it to the remote as a docker compose secret mounted at
 # /run/secrets/operator_key — never as a container environment variable, which
 # `docker inspect` would expose.
