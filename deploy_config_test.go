@@ -553,3 +553,42 @@ func TestRegisterRefusesWithoutAnOperatorKey(t *testing.T) {
 		t.Errorf("the refusal does not name the missing key:\n%s", out)
 	}
 }
+
+// A keyless deploy is a deploy of nothing, and the binary will not tell you so:
+// it boots fine and answers every execution call with a polite refusal. Without
+// a key this agent cannot register on chain, cannot execute a delegated order
+// and cannot be paid, so what lands is a service whose only working half is the
+// read layer. The script refuses before it touches docker, ssh or the network —
+// the failure has to arrive at the operator, not at the first caller.
+func TestDeployRefusesWithoutOperatorKey(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	// --dry-run so this reaches the argument checks without touching docker,
+	// ssh, or the network.
+	cmd := exec.Command("bash", script, "--no-config", "--dry-run", "--host", "www@agent.example.com")
+	// --no-config keeps the config FILE out of it, but the key arrives by
+	// environment, so a developer who exports one in their shell would turn
+	// this into a test that never runs its own assertion.
+	cmd.Env = append(os.Environ(), envKey+"=")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("keyless deploy succeeded; it must refuse:\n%s", out)
+	}
+	if !strings.Contains(string(out), envKey+" is required") {
+		t.Errorf("refusal does not name the missing variable:\n%s", out)
+	}
+	// The print modes still render the keyless form on purpose — that is how
+	// you inspect a config before you have a key — so the refusal must be the
+	// install's, not the renderer's.
+	preview := exec.Command("bash", script, "--no-config", "--print-config", "--host", "www@agent.example.com")
+	preview.Env = append(os.Environ(), envKey+"=")
+	if _, err := preview.Output(); err != nil {
+		t.Errorf("--print-config must still work without a key: %v", err)
+	}
+}

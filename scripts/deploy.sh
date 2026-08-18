@@ -66,8 +66,12 @@
 #                                    SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(op read …)"
 #                                  Or let --gen-operator-key mint one and wire the
 #                                  config file to it.
-#                                  Unset → keyless, and the execution skills refuse
-#                                  with a reason. Set, it ships to the remote as a
+#                                  REQUIRED to install. The binary can run keyless
+#                                  — the execution skills refuse with a reason —
+#                                  but a deployed agent that does is a service
+#                                  nobody can reach: unregistrable, unable to
+#                                  execute, unable to be paid. It ships to the
+#                                  remote as a
 #                                  docker compose SECRET mounted at
 #                                  /run/secrets/operator_key — never as a container
 #                                  environment variable, which `docker inspect` and
@@ -344,10 +348,13 @@ done
 public_url="${public_url%/}"
 
 # $operator_key holds the key material itself, seeded from the environment
-# above. Empty means keyless — a fully supported mode here: the agent still
-# advertises the execution skills and refuses them at call time with a reason.
-# Normalised and validated once by resolve_operator_key, which runs before
-# anything is rendered.
+# above. Normalised and validated once by resolve_operator_key, which runs
+# before anything is rendered.
+#
+# Empty is still a shape the RENDERERS handle — --print-config and
+# --print-compose will show you the keyless form, and the binary itself boots
+# that way, advertising the execution skills and refusing them at call time.
+# What refuses empty is the install: see require_install_args.
 
 # ---- shared helpers -------------------------------------------------------
 
@@ -490,6 +497,15 @@ EOF
 
 require_install_args() {
   [[ -n "$host" ]] || fail "--host is required (or set SVPCHAIN_DEPLOY_HOST)"
+  # A keyless deploy is a deploy of nothing. The binary tolerates it — the
+  # execution skills answer with a reason instead of an unknown-tool error —
+  # but that mode exists for local runs and tests, not for a host: without a
+  # key this agent cannot register on chain, cannot execute a delegated order,
+  # and cannot be paid through settlement, so what lands is a service whose
+  # every interesting call refuses. Refuse here rather than ship it and let the
+  # first caller discover it.
+  [[ -n "$operator_key" ]] || \
+    fail "SVPCHAIN_PERPS_AGENT_OPERATOR_KEY is required: without it this agent cannot register on chain, execute delegated orders, or be paid, so a deployed one would refuse every execution call. Run --gen-operator-key to mint one into ${config_dir}, or set it in ${config_dir}/config.sh yourself"
 }
 
 # validate_hex_key — the VALUE must look like a 32-byte hex operator key.
@@ -501,8 +517,9 @@ validate_hex_key() {
 }
 
 # resolve_operator_key — normalise and validate the key material supplied in
-# SVPCHAIN_PERPS_AGENT_OPERATOR_KEY. Without one the agent runs keyless: it
-# advertises execution but refuses with a reason.
+# SVPCHAIN_PERPS_AGENT_OPERATOR_KEY. Empty is allowed through here: the
+# print modes render the keyless form deliberately, and require_install_args is
+# what refuses to install one.
 #
 # The trim matters more than it looks: the natural way to set this is
 # `="$(cat …)"` or `="$(op read …)"`, and a trailing newline from either would
@@ -918,8 +935,8 @@ require_cmd rsync
 require_cmd ssh
 require_cmd go
 
-# Normalise and validate the operator key material. With no key the agent runs
-# keyless.
+# Normalise and validate the operator key material. Its presence was already
+# required above; this is what checks it is actually a key.
 resolve_operator_key
 
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -936,11 +953,7 @@ mkdir -p "${REPO_DIR}/build"
 step "Preflight (operator + remote)"
 info "host=$host image=$image_ref platform=$platform"
 info "install_dir=$install_dir public_url=$public_url"
-if [[ -n "$operator_key" ]]; then
-  info "  ${AGENT_NAME} :${AGENT_PORT} — operator key set (execution ON)"
-else
-  info "  ${AGENT_NAME} :${AGENT_PORT} — keyless (execution refuses with a reason)"
-fi
+info "  ${AGENT_NAME} :${AGENT_PORT} — operator key set (execution ON)"
 if [[ "$dry_run" != "1" ]]; then
   ssh -o BatchMode=yes "$host" "docker version --format '{{.Server.Version}}'" \
     >/dev/null 2>&1 \
@@ -1070,7 +1083,5 @@ step "Done — $AGENT_NAME $image_tag running on $host (:${AGENT_PORT}, advertis
 # registry is the failure this line exists to prevent: verifiers recompute the
 # capability hash from a live fetch, so an agent serving a card that no longer
 # matches its registration reads as unverified with every process healthy.
-if [[ -n "$operator_key" ]]; then
-  info "If the card or the public URL changed, publish it:"
-  info "  ./scripts/deploy.sh --register    (also does the first registration)"
-fi
+info "If the card or the public URL changed, publish it:"
+info "  ./scripts/deploy.sh --register    (also does the first registration)"

@@ -105,9 +105,14 @@ as unverified, with every process healthy and nothing in the logs.
 
 ## The operator key
 
-Optional. Without one the agent runs keyless and the execution skills refuse
-with a reason. With one, `agent_self_register` puts this agent on chain and it
-can execute delegated orders and be paid through the settlement escrow.
+**Required to deploy.** The binary itself tolerates running keyless — the
+execution skills stay on the card and refuse at call time with a reason, which
+is what makes local runs and tests possible — but a deployed agent that does is
+a service nobody can use: it cannot register on chain, cannot execute a
+delegated order, and cannot be paid through the settlement escrow. So
+`scripts/deploy.sh` refuses to install without one, before it touches docker or
+the network. With a key, `agent_self_register` puts this agent on chain and the
+execution skills work.
 
 It is a 32-byte hex eth_secp256k1 key. A local run reads it from
 `[operator] key_file` or from `SVPCHAIN_PERPS_AGENT_OPERATOR_KEY`, which takes
