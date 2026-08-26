@@ -3,4 +3,5 @@
 .git
 /build
 agent.toml
+owner.key
 **/.DS_Store

@@ -105,9 +105,11 @@ type CardIdentity struct {
 	Description string
 }
 
-// ★ The identity above and skillMetas below are the card callers read.
-// cmd/svpchain-perps-agent/testdata/card.json is the golden that makes a
-// change to either deliberate.
+// ★ The identity above and skillMetas below both feed bytes that are hashed
+// into this agent's on-chain registration (cmd/agent-register). Editing either
+// moves the served card, and the deployment must then re-run --register or the
+// agent reads as unverified. cmd/svpchain-perps-agent/testdata/card.json is
+// the golden that makes such a change deliberate.
 
 // BuildAgentCardFor returns the public Agent Card for one binary's identity
 // over its registry. The registry supplies each skill's tool list, so a card

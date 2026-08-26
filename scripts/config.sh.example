@@ -7,7 +7,9 @@
 #   ./scripts/deploy.sh --init-config    # writes this file at 0600 and names it
 #
 # The directory is named after this agent rather than after the project, so
-# every agent in the fleet carries its own settings.
+# every agent in the fleet carries its own. That is what keeps their owner
+# keys apart: an agent's on-chain id derives from its key, so two agents
+# sharing one would be a single id claiming two cards.
 #
 # Precedence: flag > environment > config file > default. So
 # `./scripts/deploy.sh --public-url https://staging.example.org` still works,
@@ -28,6 +30,36 @@ SVPCHAIN_INDEXER="http://127.0.0.1:3002"
 # The URL callers reach this agent at. Used verbatim — nothing is appended, so
 # it must be the URL your reverse proxy routes to this agent.
 SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
+
+# ---- registration ----------------------------------------------------------
+#
+# The OWNER key: the account that registers this agent on chain, pays the
+# registration fee and the bond, and controls the record thereafter. Needed
+# only by --register. It is never shipped to the deployed host — the agent
+# signs nothing, so a key there would be risk with no use.
+#
+# This one account is registered as both owner and operator, so the agent id
+# (did:svp:<address>) derives from it and it can register exactly ONE agent.
+# A second agent needs its own key, in its own config directory.
+#
+# ./scripts/deploy.sh --gen-owner-key mints one and rewrites the line below.
+# Setting it by hand is fine too; this file is sourced, so it can compute the
+# value rather than store it:
+#   SVPCHAIN_PERPS_AGENT_OWNER_KEY="$(op read op://vault/svpchain-perps-agent/owner-key)"
+#
+# Left COMMENTED OUT deliberately. This file is sourced, so an uncommented line
+# reading a key you have not created yet would fail the source itself, and
+# every command would then die on that instead of running keyless as intended.
+#SVPCHAIN_PERPS_AGENT_OWNER_KEY="$(cat "$HOME/.config/svpchain-perps-agent/owner.key")"
+
+# gRPC endpoint reachable from THIS machine, used only by --register.
+# SVPCHAIN_GRPC_ADDR above is the address the deployed container dials, which
+# on a normal deployment is meaningful only on the remote host.
+#SVPCHAIN_REGISTER_GRPC="grpc.testnet.svpchain.org:443"
+
+# Capability tags the registration is indexed by, and free-form metadata.
+SVPCHAIN_OPERATOR_CAPABILITIES="perps.trading,perps.market-data"
+SVPCHAIN_OPERATOR_METADATA="svpchain perps agent"
 
 # ---- optional families and tuning ------------------------------------------
 

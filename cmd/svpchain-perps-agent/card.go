@@ -9,9 +9,12 @@ import "github.com/svpchain/svpchain-perps-agent/internal/a2aserver"
 // separate from card machinery: the skill text there describes what the agent
 // can do, this describes who it is.
 //
-// ★ The served card is what callers read to learn this agent's surface.
-// Editing anything here changes it; the golden test beside this file is what
-// makes such a change deliberate.
+// ★ These bytes are load-bearing. The served card is hashed and published on
+// chain by `deploy.sh --register`, and a verifier fetches the card and
+// recomputes that hash. Editing anything here changes the card, so the
+// deployment must re-run --register afterwards or the agent reads as
+// unverified. The golden test beside this file is what makes such a change
+// deliberate.
 var identity = a2aserver.CardIdentity{
 	Name:    "svpchain-perps-agent",
 	Version: "0.1.0",

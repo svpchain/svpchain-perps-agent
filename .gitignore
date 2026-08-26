@@ -5,3 +5,6 @@
 
 # `go build ./cmd/<name>` (no -o) drops a 50-150MB binary in the repo root.
 /svpchain-perps-agent
+
+# Owner key material. Never committed.
+*.key

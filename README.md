@@ -58,11 +58,15 @@ Edit what it names, then a routine install is just `./scripts/deploy.sh`.
 To see what actually resolved, and from which layer:
 
 ```sh
-./scripts/deploy.sh --print-env
+./scripts/deploy.sh --print-env       # the key prints as "set (64 chars)", never its value
 ```
 
 The directory is named after **this agent**, not after the project, so every
-agent in the fleet carries its own settings.
+agent in the fleet carries its own. That is not filing tidiness: an agent's
+on-chain id derives from its owner key, so two agents sharing one key would be
+a single id claiming two cards — and the chain refuses the second. A directory
+per agent makes that hard to do by accident, where one shared file would
+invite it.
 
 Precedence is flag > environment > config file > default, so
 `./scripts/deploy.sh --public-url https://staging.example.org` still overrides,
@@ -94,18 +98,100 @@ Nothing installs it. The server block it belongs in owns TLS and the host name,
 both outside this repo — so paste it, then
 `nginx -t && systemctl reload nginx`.
 
-The route is not cosmetic. `public_url` is advertised inside the Agent Card
-and callers dial it; if nginx does not route that host to this port the agent
-advertises a URL that 404s, with every process healthy and nothing in the logs.
+The route is not cosmetic. `public_url` is advertised inside the Agent Card,
+and a verifier fetches that URL to recompute the capability hash; if nginx does
+not route that host to this port the agent advertises a URL that 404s and reads
+as unverified, with every process healthy and nothing in the logs.
 `TestDeployScriptNginxRouteMatchesConfig` pins the two together.
+
+## The owner key
+
+The agent itself holds no key: every write it builds is signed by the caller,
+so nothing on the deployed host can sign anything, and the deploy ships no
+key there. What *does* need a key is putting the agent on chain. The **owner
+key** is the account that signs `MsgRegisterAgent`, pays the registration fee
+and the bond, and controls the record thereafter. It lives in the config
+directory on the machine you deploy from and is read by `--register` alone.
+
+Mint one:
+
+```sh
+./scripts/deploy.sh --gen-owner-key
+```
+
+It writes `owner.key` into the config dir at 0600, rewrites `config.sh` to
+read the key from there, and prints the `svp1…` address — the part you cannot
+work out by looking at the key, and the address the fee, the bond and gas must
+be funded to. The key itself is written, never printed. A second run refuses:
+this one account is registered as **both owner and operator**, so it is the
+agent's on-chain id (`did:svp:<address>`) as well as the account holding its
+bond, and another key is a new agent, not a replacement. Back the file up —
+losing it strands the registration and the bond, and a fresh key is not a
+recovery.
+
+The same fact has a second consequence: `x/agent` binds an operator address to
+at most one agent, so **one key registers exactly one agent**. A fleet keeps
+one per agent, which the per-agent config directory already arranges.
+
+Setting it by hand works too — `config.sh` is sourced, so it can compute the
+value rather than store it:
+
+```sh
+SVPCHAIN_PERPS_AGENT_OWNER_KEY="$(op read op://vault/svpchain-perps-agent/owner-key)"
+```
+
+There is no flag for it: a key in `argv` shows up in `ps` and in your shell
+history.
+
+## Putting it on chain
+
+Registration is not a deploy step and cannot be one. What gets published is the
+sha256 of the agent card **as served**, so the thing being registered has to be
+a running agent answering at a URL. Deploy first, then:
+
+```sh
+./scripts/deploy.sh --register
+```
+
+It fetches the card from the public URL, hashes exactly those bytes, checks the
+card's own interface URL agrees with the endpoint being registered, and then
+signs locally with the owner key — the right message for the state it finds:
+
+| state | call |
+|---|---|
+| not registered | `MsgRegisterAgent` (`--bond` overrides the module's `MinBond`) |
+| registered, card hash moved | `MsgUpdateAgent` |
+| registered, endpoint or capabilities moved | `MsgUpdateAgent` |
+| registered and current | nothing, and it says so |
+
+Both drifts are otherwise silent. A stale capability hash makes verifiers read
+the agent as unverified while every process is healthy; a stale endpoint points
+them at a URL that may no longer answer.
+
+The transaction is broadcast from **your** machine, so it needs a gRPC
+endpoint reachable from there: `--register-grpc` / `SVPCHAIN_REGISTER_GRPC`.
+`--grpc-addr` is the container's view of the chain — typically a loopback
+address on the remote host — and is only the right default for a local dev
+node. `--dry-run` prints what would be submitted without broadcasting.
+
+`cmd/agent-register` is the client underneath. Run it directly to reach the
+agent some other way — over an ssh tunnel before DNS is live, say:
+
+```sh
+SVPCHAIN_PERPS_AGENT_OWNER_KEY=… go run ./cmd/agent-register \
+  -url http://127.0.0.1:8082 -chain-id svp-2517-1 -grpc 127.0.0.1:9090 \
+  -capabilities perps.trading,perps.market-data
+```
 
 ## The agent card is an interface
 
-The served card is what callers read to learn this agent's surface, so
-`card.go` is load-bearing. `cmd/svpchain-perps-agent/testdata/card.json` is a
-golden that makes a change deliberate rather than accidental — including when
-the skill text under `internal/a2aserver` changes, which moves the card just as
-surely.
+The served card's bytes are hashed into this agent's on-chain registration, and
+verifiers recompute that hash from a live fetch. `card.go` is therefore
+load-bearing: change it and every deployment must re-run
+`./scripts/deploy.sh --register`, which updates the record when it sees the
+drift. `cmd/svpchain-perps-agent/testdata/card.json` is a golden that makes
+such a change deliberate rather than accidental — including when the skill
+text under `internal/a2aserver` changes, which moves the card just as surely.
 
 ## Development
 
