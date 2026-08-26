@@ -10,9 +10,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
-
-	"github.com/svpchain/svpchain-perps-agent/internal/delegated"
 	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
@@ -31,20 +28,13 @@ type Executor struct {
 
 	registry *toolbridge.Registry
 	authr    *AuthResolver
-
-	// reads and readTenants serve delegated read-only access: an SVP-DT
-	// credential granting query.account authorizes the covered account
-	// queries for its principal, without any bearer. Both are nil on keyless
-	// deployments — delegated reads then refuse alongside delegated execution.
-	reads       *delegated.Service
-	readTenants *delegated.ReadTenantSource
 }
 
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
 // NewFullExecutor returns an executor serving the whole operation registry.
-func NewFullExecutor(market *marketdata.Service, registry *toolbridge.Registry, authr *AuthResolver, reads *delegated.Service, readTenants *delegated.ReadTenantSource) *Executor {
-	return &Executor{market: market, registry: registry, authr: authr, reads: reads, readTenants: readTenants}
+func NewFullExecutor(market *marketdata.Service, registry *toolbridge.Registry, authr *AuthResolver) *Executor {
+	return &Executor{market: market, registry: registry, authr: authr}
 }
 
 func (e *Executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
@@ -99,15 +89,6 @@ func (e *Executor) handle(ctx context.Context, execCtx *a2asrv.ExecutorContext) 
 		return "", fmt.Errorf("no skill named")
 	}
 
-	// The canonical carrier for an SVP-DT credential chain is the message
-	// metadata (the args "proof" field survives as a deprecated alias). Read
-	// it before any dispatch so a malformed attachment is refused up front
-	// rather than quietly dropped.
-	deleg, err := delegationFromMessage(execCtx.Message)
-	if err != nil {
-		return "", err
-	}
-
 	// Legacy read-layer form: {"skill":"svpchain-market-data","query":...}.
 	// Served straight from the market-data service so pre-envelope callers
 	// (and the original examples on the card) keep working byte-for-byte.
@@ -128,32 +109,6 @@ func (e *Executor) handle(ctx context.Context, execCtx *a2asrv.ExecutorContext) 
 
 	if e.authr != nil {
 		ctx = e.authr.Attach(ctx, execCtx, &req)
-	}
-
-	// Delegated reads: a proof on a covered query tool authenticates the call
-	// as the credential's principal — but only when no bearer resolved, so a
-	// caller presenting both keeps the bearer's (wider) tenant. Runs before
-	// injectProof; the alias "proof" key that injectProof adds afterwards is
-	// ignored by the query handlers' plain json.Unmarshal.
-	if deleg != nil && e.reads != nil && e.readTenants != nil {
-		if _, isRead := delegated.ReadSpecFor(req.Tool); isRead {
-			if _, hasTenant := tools.TenantFrom(ctx); !hasTenant {
-				verified, newArgs, err := e.reads.AuthorizeRead(ctx, req.Tool, deleg.Tokens, req.Args)
-				if err != nil {
-					return "", err
-				}
-				req.Args = newArgs
-				ctx = tools.WithTenant(ctx, e.readTenants.Admit(verified))
-			}
-		}
-	}
-
-	if deleg != nil {
-		args, err := injectProof(req.Args, deleg.Tokens)
-		if err != nil {
-			return "", err
-		}
-		req.Args = args
 	}
 
 	resp := Response{Skill: req.Skill, Tool: req.Tool}

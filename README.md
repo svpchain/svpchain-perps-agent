@@ -4,9 +4,9 @@ The perpetuals-trading [A2A](https://a2aproject.github.io/A2A/) agent for
 SVP-Chain: a remote, server-side agent other agents call over the network.
 
 It serves market data, accounts, unsigned order and funds tx building, the
-Cosmos broadcast rail, self-service auth, the chain's `x/agent` /
-`x/agentwallet` modules, and **delegated perps execution** under
-[SVP-DT](https://github.com/svpchain/svpdt) credentials.
+Cosmos broadcast rail, and self-service auth. The agent never holds a caller's
+key: every write is built unsigned, signed by the caller, and landed through
+`broadcast_signed_tx`.
 
 Everything above is implemented under `internal/`, which was the shared
 `svpchain-agent-core` library until that repo was retired and folded in here.
@@ -58,14 +58,11 @@ Edit what it names, then a routine install is just `./scripts/deploy.sh`.
 To see what actually resolved, and from which layer:
 
 ```sh
-./scripts/deploy.sh --print-env       # the key prints as "set (64 chars)", never its value
+./scripts/deploy.sh --print-env
 ```
 
 The directory is named after **this agent**, not after the project, so every
-agent in the fleet carries its own. That is not filing tidiness: an agent's
-on-chain id derives from its operator key, so two agents sharing one key would
-be a single id claiming two cards. A directory per agent makes that hard to do
-by accident, where one shared file would invite it.
+agent in the fleet carries its own settings.
 
 Precedence is flag > environment > config file > default, so
 `./scripts/deploy.sh --public-url https://staging.example.org` still overrides,
@@ -97,117 +94,18 @@ Nothing installs it. The server block it belongs in owns TLS and the host name,
 both outside this repo — so paste it, then
 `nginx -t && systemctl reload nginx`.
 
-The route is not cosmetic. `public_url` is advertised inside the Agent Card,
-and a verifier fetches that URL to recompute the capability hash; if nginx does
-not route that host to this port the agent advertises a URL that 404s and reads
-as unverified, with every process healthy and nothing in the logs.
+The route is not cosmetic. `public_url` is advertised inside the Agent Card
+and callers dial it; if nginx does not route that host to this port the agent
+advertises a URL that 404s, with every process healthy and nothing in the logs.
 `TestDeployScriptNginxRouteMatchesConfig` pins the two together.
-
-## The operator key
-
-**Required to deploy.** The binary itself tolerates running keyless — the
-execution skills stay on the card and refuse at call time with a reason, which
-is what makes local runs and tests possible — but a deployed agent that does is
-a service nobody can use: it cannot register on chain, cannot execute a
-delegated order, and cannot be paid through the settlement escrow. So
-`scripts/deploy.sh` refuses to install without one, before it touches docker or
-the network. With a key, `agent_self_register` puts this agent on chain and the
-execution skills work.
-
-It is a 32-byte hex eth_secp256k1 key. A local run reads it from
-`[operator] key_file` or from `SVPCHAIN_PERPS_AGENT_OPERATOR_KEY`, which takes
-precedence. The variable is named for *this* agent rather than the fleet, for
-the same reason the config directory is: one shared name across agents is one
-id claiming several cards.
-
-If you have no key yet, mint one:
-
-```sh
-./scripts/deploy.sh --gen-operator-key
-```
-
-It writes `operator.key` into the config dir at 0600, rewrites `config.sh` to
-read the key from there, and prints the `svp1…` address — which is the part you
-cannot work out by looking at the key, and the address the bond and gas must be
-funded to. The key itself is written, never printed. A second run refuses:
-a key is an on-chain identity with a bond posted against it, so another one is
-a new agent, not a replacement. Back that file up — losing it strands the
-registration and the bond, and generating a fresh key is not a recovery.
-
-For a deploy the key goes in `config.sh` as
-`SVPCHAIN_PERPS_AGENT_OPERATOR_KEY`, holding the hex itself rather than a path.
-There is no flag for it — a key in `argv` shows up in `ps` and in your shell
-history. Because the file is sourced it can compute the value, so the key need
-not sit in plaintext on the machine you deploy from:
-
-```sh
-SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(op read op://vault/perps/key)"
-```
-
-On the remote it lands as a **docker compose secret** mounted read-only at
-`/run/secrets/operator_key`, which is what `key_file` then points at. Not a
-container environment variable — `docker inspect` and `/proc/<pid>/environ`
-would both expose that.
-
-**It must be distinct from every other agent's key.** An agent's on-chain id
-derives from its key and `agent_self_register` publishes a hash of *this*
-binary's card, so two agents sharing a key collide on one registry record and
-overwrite each other's capability hash. Fund the key's address before
-registering: the bond, plus gas for delegated execution.
-
-## Putting it on chain
-
-Registration is not a deploy step and cannot be one. What gets published is the
-sha256 of the agent card **as served**, so the thing that registers has to be a
-running agent answering at a URL — which is why `agent_self_register` is a tool
-on the A2A surface rather than a subcommand of the binary. Deploy first, then:
-
-```sh
-./scripts/deploy.sh --register
-```
-
-That authenticates as the operator over the ordinary `auth_challenge` /
-`auth_verify` flow — the key signs the challenge, nothing else; the transaction
-itself is signed by the agent, on the remote, with the copy the deploy shipped
-as a compose secret — and then calls the right operation for the state it finds:
-
-| state | call |
-|---|---|
-| not registered | `agent_self_register` (`--bond` overrides the module's `MinBond`) |
-| registered, card hash moved | `agent_self_update` |
-| registered, endpoint moved | `agent_self_update` |
-| registered and current | nothing, and it says so |
-
-Both drifts are otherwise silent. A stale capability hash makes verifiers read
-the agent as unverified while every process is healthy; a stale endpoint points
-them at a URL that may no longer answer. The endpoint is a separate case
-because the capability hash does not cover it — a card that never changed can
-still be registered against a host name that has.
-
-It runs against the **public URL**, not over the ssh connection, on purpose:
-that URL is what goes into the registration and what a verifier will fetch, so
-a registration that succeeds through it has proven the route as a side effect.
-Before anything is signed it fetches the card and checks its sha256 against the
-hash the agent says it would publish — the same comparison a verifier makes
-later, so a proxy rewriting the body or a URL reaching a different process is
-caught here rather than becoming an on-chain claim nobody can verify.
-
-`cmd/agent-register` is the client underneath. Run it directly to reach the
-agent some other way — over an ssh tunnel before DNS is live, say:
-
-```sh
-SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=… go run ./cmd/agent-register -url http://127.0.0.1:8082
-```
 
 ## The agent card is an interface
 
-The served card's bytes are hashed into this agent's on-chain registration, and
-verifiers recompute that hash from a live fetch. `card.go` is therefore
-load-bearing: change it and every deployment must run `agent_self_update` —
-which is what `./scripts/deploy.sh --register` does when it sees the drift.
-`cmd/svpchain-perps-agent/testdata/card.json` is a golden that makes such a
-change deliberate rather than accidental — including when the skill text under
-`internal/a2aserver` changes, which moves the card just as surely.
+The served card is what callers read to learn this agent's surface, so
+`card.go` is load-bearing. `cmd/svpchain-perps-agent/testdata/card.json` is a
+golden that makes a change deliberate rather than accidental — including when
+the skill text under `internal/a2aserver` changes, which moves the card just as
+surely.
 
 ## Development
 

@@ -61,15 +61,10 @@ func newAuthedStack(t *testing.T) (*Executor, *auth.DynamicTenantStore, *auth.Se
 		RateLimit:        policy.NewRateLimiter(0, 0),
 		BroadcastMode:    "server",
 	})
-	reg := toolbridge.New(h)
-	// Production wiring always registers execution — as refusals when no
-	// operator key is configured — so the test surface matches the card.
-	reg.RegisterExecution(nil)
 	exec := NewFullExecutor(
 		marketdata.NewService(fakeReader{}),
-		reg,
+		toolbridge.New(h),
 		&AuthResolver{Tenants: tenants, Sessions: sessions},
-		nil, nil,
 	)
 	return exec, tenants, sessions
 }

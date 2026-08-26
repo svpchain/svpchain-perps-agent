@@ -1,9 +1,8 @@
 # svpchain-perps-agent configuration.
 #
 # The schema is internal/config. Unknown keys are ignored rather than rejected,
-# so a config still carrying the retired [evm] blocks loads fine. Use a DISTINCT
-# operator key per binary: the agent id derives from the key and
-# self-registration hashes this binary's own card.
+# so a config still carrying retired blocks ([evm], [operator], [agent_chain])
+# loads fine.
 
 listen_addr = ":8082"
 # How callers reach this agent; advertised in the Agent Card.
@@ -15,23 +14,9 @@ grpc_addr        = "127.0.0.1:9090"
 comet_rpc_url    = "http://127.0.0.1:26657"
 indexer_base_url = "http://127.0.0.1:3002"
 
-# Optional: run the agent-identity families (x/agent, x/agentwallet, delegated
-# execution) against a separate agent chain over its Cosmos REST API.
-#[agent_chain]
-#id       = "svpagent-testnet-1"
-#rest_url = "http://127.0.0.1:1317"
-
 # Caps on funds movements, in human USDC. Zero disables a check.
 [limits]
 deposit_max_usdc        = 1000
 withdraw_max_usdc       = 1000
 transfer_max_usdc       = 1000
 daily_withdraw_cap_usdc = 5000
-
-# Operator key for delegated perps execution and on-chain self-registration.
-# Optional: without it the svpchain-execution skill refuses with a reason.
-# The SVPCHAIN_PERPS_AGENT_OPERATOR_KEY env var takes precedence over key_file.
-#[operator]
-#key_file     = "operator.key"
-#capabilities = ["perps.execution", "perps.trading"]
-#metadata     = "svpchain perps trading agent"

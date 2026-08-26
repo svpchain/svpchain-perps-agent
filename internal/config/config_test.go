@@ -60,25 +60,8 @@ func TestLoadRejectsMissingRequiredFields(t *testing.T) {
 	}
 }
 
-func TestAgentChainIsBothOrNeither(t *testing.T) {
-	if _, err := Load(writeConfig(t, minimal+`
-agent_chain.rest_url = "http://127.0.0.1:1317"
-`)); err == nil || !strings.Contains(err.Error(), "agent_chain.id") {
-		t.Errorf("rest_url without id must fail, got %v", err)
-	}
-	cfg, err := Load(writeConfig(t, minimal+`
-agent_chain.id       = "svpagent-1"
-agent_chain.rest_url = "http://127.0.0.1:1317"
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.AgentChain.Enabled() {
-		t.Error("agent chain should report enabled when configured")
-	}
-}
-
-// ★ The [evm] schema was removed with the EVM and Lendora surfaces, but agents
+// ★ The [evm] schema was removed with the EVM and Lendora surfaces, and the
+// [operator] / [agent_chain] schema with delegated execution, but agents
 // already deployed have an agent.toml on disk that still carries those blocks.
 // TOML decoding must ignore them rather than reject the file — otherwise
 // shrinking the schema silently turns every running deployment into a boot
@@ -92,6 +75,9 @@ evm.lendora.comptroller_addr       = "0x0000000000000000000000000000000000000003
 evm.bridge.addr                    = "0x0000000000000000000000000000000000000004"
 evm.bridge.routes_path             = "routes.json"
 evm.bridge.source_chain_id         = 1
+agent_chain.id                     = "svpagent-1"
+agent_chain.rest_url               = "http://127.0.0.1:1317"
+operator.key_file                  = "operator.key"
 
 [[evm.bridge.foreign_chain]]
 chain_id    = 421614
@@ -99,22 +85,7 @@ rpc_url     = "http://foreign:8545"
 bridge_addr = "0x0000000000000000000000000000000000000005"
 `
 	if _, err := Load(writeConfig(t, body)); err != nil {
-		t.Errorf("a config carrying the retired evm blocks must still load, got %v", err)
-	}
-}
-
-func TestOperatorKeyFileResolvesAgainstConfigDir(t *testing.T) {
-	path := writeConfig(t, minimal+`
-[operator]
-key_file = "operator.key"
-`)
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(filepath.Dir(path), "operator.key")
-	if cfg.Operator.KeyFile != want {
-		t.Errorf("key_file %q should resolve against the config dir to %q", cfg.Operator.KeyFile, want)
+		t.Errorf("a config carrying retired blocks must still load, got %v", err)
 	}
 }
 

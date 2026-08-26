@@ -56,17 +56,6 @@ func TestReplaceBlocksMatchProtocol(t *testing.T) {
 	}
 }
 
-// svpdt is a tagged module whose own tests forbid replacing it; a local replace
-// here would silently diverge this agent's credential verification from every
-// other participant's.
-func TestSvpdtIsNeverReplaced(t *testing.T) {
-	for path := range replaceLines(t, "go.mod") {
-		if strings.Contains(path, "svpchain/svpdt") {
-			t.Errorf("go.mod replaces %s; svpdt must always be the tagged module", path)
-		}
-	}
-}
-
 // moduleDir asks the go tool where a required module resolves on disk.
 //
 // -mod=mod is load-bearing, not tidiness. `make vendor` and scripts/deploy.sh

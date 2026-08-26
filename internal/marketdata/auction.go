@@ -1,6 +1,5 @@
 // Package marketdata is the read layer of the DEX agent: everything it can
-// answer from public indexer data, with no credential, no svpchain account, and
-// no dependency on any on-chain delegation module.
+// answer from public indexer data, with no credential and no svpchain account.
 //
 // The one piece of domain logic that belongs here — and the only one the thin
 // shell is allowed to carry — is a batch-auction clearing-price estimate. A

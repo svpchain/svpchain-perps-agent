@@ -3,12 +3,11 @@
 // SIGN_MODE_DIRECT signing path and the cross-checks (signer address matches
 // the loaded key, payload version matches the supported one).
 //
-// Callers here are internal/operator, which uses ParsePrivKey and
-// DeriveAddress to load the operator key, and the tests. Sign itself has no
-// non-test caller in this binary — remote callers sign their own payloads via
-// svpchain-signer-mcp — but it is retained as the counterpart of
-// broadcast_signed_tx's verification path, and signer_test.go is the only
-// executable spec of the sign-byte layout the two sides agree on.
+// Nothing outside the tests calls it in this binary — remote callers sign
+// their own payloads via svpchain-signer-mcp, and the auth tests use
+// DeriveAddress to mint wallet identities — but it is retained as the
+// counterpart of broadcast_signed_tx's verification path, and signer_test.go
+// is the only executable spec of the sign-byte layout the two sides agree on.
 //
 // SignEVM and the EVM payload types were dropped in the absorption; this agent
 // never speaks that half of the wire contract. See internal/mcp/doc.go.

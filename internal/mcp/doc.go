@@ -28,12 +28,7 @@
 //
 // The faucet/ package and tools/faucet.go came across and were dropped later,
 // once removed from the surface entirely: what it dispenses is EVM-side and
-// testnet-only, and a credential can never reach it — a claim moves nothing of
-// the delegator's, so there is no action to narrow and no budget to debit.
-// Funding lives in svpchain-evm-agent. That removal changed the served card and
-// therefore the on-chain capability hash, which is a cost the next paragraph is
-// specifically about avoiding; it was paid deliberately, alongside a public_url
-// change that already required agent_self_update everywhere.
+// testnet-only. Funding lives in svpchain-evm-agent.
 //
 // Two behaviours changed shape but not observable result, because both were
 // already gated on an EVM client internal/config has no way to configure (the
@@ -42,9 +37,8 @@
 //   - get_balance no longer merges contract-read ERC-20 balances. That path
 //     short-circuited on a nil EVM client, so it only ever returned nil.
 //   - get_oracle_price is now a literal refusal rather than a computed one. It
-//     stays registered and advertised: the served agent card's sha256 is
-//     published on chain by agent_self_register, so dropping a tool would force
-//     an agent_self_update on every deployment.
+//     stays registered and advertised so the served card keeps the tool set
+//     callers already know.
 //
 // # Files that are not verbatim
 //

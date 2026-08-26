@@ -3,7 +3,6 @@ package toolbridge
 import (
 	"reflect"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
@@ -40,53 +39,6 @@ func TestFamilyMethodsMatchTheFullTable(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got[skill], sorted(expectedOps[skill])) {
 			t.Errorf("family %q tools = %v, expected table = %v", skill, got[skill], sorted(expectedOps[skill]))
-		}
-	}
-}
-
-// The core/perps execution split must partition the full execution surface.
-// The split is still real even though this binary registers both halves:
-// RegisterDelegationStack contributes the domain-agnostic core and the profile
-// adds the perps writes separately. What this pins is that a core-only registry
-// leaves the perps writes *unknown* rather than refusing — the difference
-// between a card that never advertises perps execution and one that advertises
-// it and says no.
-func TestExecutionCorePerpsSplit(t *testing.T) {
-	if got := sorted(executionTools); len(got) != len(executionCoreTools)+len(executionPerpsTools) {
-		t.Fatalf("core+perps do not partition executionTools: %v", got)
-	}
-
-	core := NewEmpty()
-	core.RegisterExecutionCore(nil)
-	for _, tool := range executionCoreTools {
-		op, ok := core.Lookup(tool)
-		if !ok {
-			t.Errorf("core tool %q missing", tool)
-			continue
-		}
-		if _, err := op.Call(nil, nil); err == nil || !strings.Contains(err.Error(), "operator key") {
-			t.Errorf("keyless core %q must refuse naming the operator-key requirement, got %v", tool, err)
-		}
-	}
-	for _, tool := range executionPerpsTools {
-		if _, ok := core.Lookup(tool); ok {
-			t.Errorf("perps write %q must be unknown on a core-only registry, not registered", tool)
-		}
-	}
-
-	perps := NewEmpty()
-	perps.RegisterExecutionPerps(nil)
-	for _, tool := range executionPerpsTools {
-		if _, ok := perps.Lookup(tool); !ok {
-			t.Errorf("perps tool %q missing", tool)
-		}
-	}
-
-	full := NewEmpty()
-	full.RegisterExecution(nil)
-	for _, tool := range executionTools {
-		if _, ok := full.Lookup(tool); !ok {
-			t.Errorf("full execution tool %q missing", tool)
 		}
 	}
 }

@@ -5,7 +5,6 @@ import (
 
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
 
@@ -20,11 +19,8 @@ import (
 // fails here, which is exactly the drift a freshly-pruned vendored tree invites.
 func TestPerpsProfileCoversTheWholeSurface(t *testing.T) {
 	h := &tools.Handlers{}
-	agentSvc := agentchain.New(nil, nil, nil, nil, nil, nil, nil)
 
 	expected := toolbridge.New(h)
-	expected.RegisterAgentChain(agentSvc)
-	expected.RegisterExecution(nil)
 	want := map[string]bool{}
 	for _, tools := range expected.BySkill() {
 		for _, tool := range tools {
@@ -33,7 +29,7 @@ func TestPerpsProfileCoversTheWholeSurface(t *testing.T) {
 	}
 
 	r := toolbridge.NewEmpty()
-	PerpsProfile.Register(r, h, agentSvc, nil)
+	PerpsProfile.Register(r, h)
 	got := map[string]bool{}
 	for _, tools := range r.BySkill() {
 		for _, tool := range tools {
@@ -56,22 +52,14 @@ func TestPerpsProfileCoversTheWholeSurface(t *testing.T) {
 	}
 }
 
-// The profile registers the shared delegation stack: auth to mint bearers, the
-// agent-chain identity modules, and the execution core.
-func TestPerpsProfileServesTheDelegationStack(t *testing.T) {
-	h := &tools.Handlers{}
-	agentSvc := agentchain.New(nil, nil, nil, nil, nil, nil, nil)
-
+// The profile registers self-service auth: it mints the bearer every
+// owner-scoped family gates on.
+func TestPerpsProfileServesAuth(t *testing.T) {
 	r := toolbridge.NewEmpty()
-	PerpsProfile.Register(r, h, agentSvc, nil)
-	for _, tool := range []string{
-		"auth_challenge", "auth_verify",
-		"get_agent", "build_register_agent",
-		"get_delegation", "build_create_delegation",
-		"agent_identity", "agent_self_register", "execute_record_spend", "agent_claim",
-	} {
+	PerpsProfile.Register(r, &tools.Handlers{})
+	for _, tool := range []string{"auth_challenge", "auth_verify"} {
 		if _, ok := r.Lookup(tool); !ok {
-			t.Errorf("profile %s missing delegation-stack tool %q", PerpsProfile.Name, tool)
+			t.Errorf("profile %s missing auth tool %q", PerpsProfile.Name, tool)
 		}
 	}
 }

@@ -2,7 +2,6 @@ package a2aserver
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -37,23 +36,9 @@ func StartFullFor(ctx context.Context, cfg *config.Config, app *wire.App, ident 
 		market,
 		app.Registry,
 		&AuthResolver{Tenants: app.Tenants, Sessions: app.Sessions},
-		app.Delegated,
-		app.ReadTenants,
 	)
 
 	card := BuildAgentCardFor(ident, cfg.PublicURL, app.Registry)
-
-	// Hand the delegated service the exact bytes the card route serves
-	// (NewStaticAgentCardHandler marshals the card the same way), so the
-	// capability hash it registers on chain verifies against a fetch of
-	// /.well-known/agent-card.json.
-	if app.Delegated != nil {
-		cardJSON, err := json.Marshal(card)
-		if err != nil {
-			return fmt.Errorf("marshal agent card: %w", err)
-		}
-		app.Delegated.SetCapabilityCard(cardJSON)
-	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

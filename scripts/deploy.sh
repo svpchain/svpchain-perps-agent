@@ -10,16 +10,10 @@
 # so nothing here knows or cares about them.
 #
 # Flow: build (vendored, so the go.mod replace to ../svpagent/protocol never
-# leaves the operator) → docker save (cached by image id) → rsync one staging
-# dir (agent.toml, docker-compose.yml, operator.key at 0600 when given) plus
-# the image tar to ~/svpchain-perps-agent → docker load → docker compose up -d
-# → smoke-test /healthz and the agent card over loopback.
-#
-# The operator key turns delegated execution on. It must be DISTINCT from every
-# other agent's: an agent's on-chain id derives from its key and
-# agent_self_register publishes a hash of this binary's own card, so a shared
-# key makes two agents collide on one registry record. With the agents in
-# separate repos nothing here can check that; it is an operational rule.
+# leaves the deploy machine) → docker save (cached by image id) → rsync one
+# staging dir (agent.toml, docker-compose.yml) plus the image tar to
+# ~/svpchain-perps-agent → docker load → docker compose up -d → smoke-test
+# /healthz and the agent card over loopback.
 #
 # The remote needs only docker + the compose v2 plugin reachable by the ssh
 # user without sudo. Auth state is in-memory, so a redeploy wipes it; the
@@ -29,8 +23,7 @@
 #   ~/.config/svpchain-perps-agent/config.sh
 #
 #   A shell file setting the SVPCHAIN_* variables named below. The directory is
-#   this agent's, not the project's, so each agent keeps its own — which is what
-#   keeps their operator keys distinct.
+#   this agent's, not the project's, so each agent keeps its own.
 #   Precedence: flag > environment > config file > default.
 #
 #   --config-dir <path>            Look for it here.      SVPCHAIN_CONFIG_DIR
@@ -46,39 +39,10 @@
 #   --grpc-addr <host:port>        SVPCHAIN_GRPC_ADDR    (127.0.0.1:9090)
 #   --comet-rpc <url>              SVPCHAIN_COMET_RPC    (http://127.0.0.1:26657)
 #   --indexer <url>                SVPCHAIN_INDEXER      (http://127.0.0.1:3002)
-#   --agent-chain-id <id>          SVPCHAIN_AGENT_CHAIN_ID
-#   --agent-chain-rest <url>       SVPCHAIN_AGENT_CHAIN_REST
-#                                  Optional separate x/agent + x/agentwallet
-#                                  chain over its Cosmos REST API. Both or
-#                                  neither; unset, those families run against
-#                                  the DEX chain connection.
 #
-# Identity and execution:
+# Identity:
 #   --public-url <url>             The URL this agent advertises, used verbatim.
 #                                  SVPCHAIN_PERPS_AGENT_PUBLIC_URL
-#
-#   SVPCHAIN_PERPS_AGENT_OPERATOR_KEY
-#                                  The hex eth_secp256k1 operator key ITSELF, not
-#                                  a path — there is no flag for it, because a key
-#                                  on the command line lands in `ps` and in your
-#                                  shell history. Set it in the config file, which
-#                                  is sourced and can therefore compute it:
-#                                    SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$(op read …)"
-#                                  Or let --gen-operator-key mint one and wire the
-#                                  config file to it.
-#                                  REQUIRED to install. The binary can run keyless
-#                                  — the execution skills refuse with a reason —
-#                                  but a deployed agent that does is a service
-#                                  nobody can reach: unregistrable, unable to
-#                                  execute, unable to be paid. It ships to the
-#                                  remote as a
-#                                  docker compose SECRET mounted at
-#                                  /run/secrets/operator_key — never as a container
-#                                  environment variable, which `docker inspect` and
-#                                  /proc/<pid>/environ would both expose.
-#   --operator-capabilities <csv>  Default "perps.execution,perps.trading".
-#                                  SVPCHAIN_OPERATOR_CAPABILITIES
-#   --operator-metadata <text>     SVPCHAIN_OPERATOR_METADATA
 #
 # Optional families and tuning:
 #   --markets-refresh <dur>        Default 30s.  SVPCHAIN_MARKETS_REFRESH
@@ -99,31 +63,13 @@
 # Modes:
 #   --init-config                  Write a starter config file to the config dir
 #                                  at 0600 and exit. Refuses to overwrite.
-#   --gen-operator-key             Mint this agent's operator key into the config
-#                                  dir at 0600, point the config file at it, and
-#                                  print the svp1… address to fund. The key is
-#                                  written, never printed. Refuses if one is
-#                                  already configured: a key is an on-chain
-#                                  identity with a bond against it, so a second
-#                                  one is a new agent, not a replacement.
-#   --register                     Put the DEPLOYED agent on chain, by calling
-#                                  agent_self_register on it over its public URL
-#                                  — or agent_self_update when it is already
-#                                  registered and the served card or the endpoint
-#                                  has moved since. Idempotent: an agent that is
-#                                  already current is left alone.
-#   --bond <coin>                  --register only. Initial bond, e.g.
-#                                  1500000usvp. Default: the module's MinBond.
 #   --print-env                    Show every setting, its resolved value and
-#                                  where it came from. The operator key prints as
-#                                  "set"/"unset", never its value.
+#                                  where it came from.
 #   --print-config / --print-compose / --print-nginx
 #   --dry-run / --uninstall
 #
 # Examples:
 #   ./scripts/deploy.sh --init-config       # then edit the file it names
-#   ./scripts/deploy.sh --gen-operator-key  # mint an identity, print its address
-#   ./scripts/deploy.sh --register          # put the deployed agent on chain
 #   ./scripts/deploy.sh                     # a configured install takes no flags
 #   ./scripts/deploy.sh --host www@svpdev1.example.com \
 #     --public-url https://perps-agent.svpchain.org
@@ -155,18 +101,6 @@ readonly AGENT_NAME="svpchain-perps-agent"
 readonly AGENT_PORT="8082"
 readonly IMAGE_REPO="ghcr.io/svpchain/svpchain-perps-agent"
 
-# The operator key travels as a docker compose secret rather than a bind mount
-# or a container environment variable. Compose mounts a secret at
-# /run/secrets/<name>, and unlike `environment:` it stays out of
-# `docker inspect` and /proc/<pid>/environ. Stated once here because the name
-# lands in three places — the service's secrets list, the top-level secrets
-# block, and the key_file path in agent.toml — and the agent boots keyless,
-# with nothing in the logs, if they disagree.
-readonly SECRET_NAME="operator_key"
-readonly SECRET_MOUNT_PATH="/run/secrets/${SECRET_NAME}"
-# Staged and shipped under this name; the top-level secrets block points here.
-readonly SECRET_FILE="operator.key"
-
 # ---- config file -----------------------------------------------------------
 #
 # Every setting below can come from a sourced shell file, so a routine install
@@ -175,10 +109,7 @@ readonly SECRET_FILE="operator.key"
 #   ~/.config/<agent-name>/config.sh
 #
 # The directory is named after this agent, not after the project, so each agent
-# in the fleet carries its own. That is what keeps the operator keys apart:
-# an agent's on-chain id derives from its key, so two agents sharing one would
-# collide on a single registry record — and a directory per agent makes that
-# impossible to do by accident rather than merely discouraged.
+# in the fleet carries its own settings.
 #
 # Precedence: CLI flag > environment > config file > default. The environment
 # outranks the file so a one-off `SVPCHAIN_DEPLOY_HOST=… deploy` still works,
@@ -203,9 +134,7 @@ unset _i _j
 # caller already exported survives.
 readonly CONFIG_VARS=(
   SVPCHAIN_DEPLOY_HOST SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR SVPCHAIN_COMET_RPC
-  SVPCHAIN_INDEXER SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
-  SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OPERATOR_KEY
-  SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA SVPCHAIN_INSTALL_DIR
+  SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_INSTALL_DIR
   SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
   SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
   SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
@@ -213,7 +142,7 @@ readonly CONFIG_VARS=(
 
 # source_config — source the config file if it exists, refusing one that other
 # users can write. It runs as you; a writable config file is a way into this
-# shell, and the key paths it names.
+# shell.
 source_config() {
   local file="$1"
   [[ -f "$file" ]] || return 0
@@ -257,9 +186,8 @@ fi
 
 # ---- args ------------------------------------------------------------------
 
-mode="install"        # install | uninstall | init-config | gen-operator-key
-                      #         | register | print-env | print-config
-                      #         | print-compose | print-nginx
+mode="install"        # install | uninstall | init-config | print-env
+                      #         | print-config | print-compose | print-nginx
 
 # Settings a flag overrode, so --print-env can say so. Same space-padded-string
 # trick as ENV_PRESET, for the same bash 3.2 reason.
@@ -272,15 +200,7 @@ chain_id="${SVPCHAIN_CHAIN_ID:-svp-2517-1}"
 grpc_addr="${SVPCHAIN_GRPC_ADDR:-127.0.0.1:9090}"
 comet_rpc="${SVPCHAIN_COMET_RPC:-http://127.0.0.1:26657}"
 indexer="${SVPCHAIN_INDEXER:-http://127.0.0.1:3002}"
-agent_chain_id="${SVPCHAIN_AGENT_CHAIN_ID:-}"
-agent_chain_rest="${SVPCHAIN_AGENT_CHAIN_REST:-}"
 public_url="${SVPCHAIN_PERPS_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.org}"
-# The operator key MATERIAL, not a path. There is deliberately no flag for it:
-# a hex key in argv is visible in `ps` and lands in shell history. The config
-# file is sourced, so it can compute the value instead of storing it.
-operator_key="${SVPCHAIN_PERPS_AGENT_OPERATOR_KEY:-}"
-operator_capabilities="${SVPCHAIN_OPERATOR_CAPABILITIES:-perps.execution,perps.trading}"
-operator_metadata="${SVPCHAIN_OPERATOR_METADATA:-}"
 install_dir="${SVPCHAIN_INSTALL_DIR:-~/svpchain-perps-agent}"
 image_tag=""
 platform="linux/amd64"
@@ -291,11 +211,6 @@ daily_withdraw_cap="${SVPCHAIN_DAILY_WITHDRAW_CAP_USDC:-}"
 markets_refresh="${SVPCHAIN_MARKETS_REFRESH:-30s}"
 skip_build="0"
 dry_run="0"
-# --register only. Deliberately not a config setting: the bond is a decision
-# made once, at registration, not a property of every deploy — and empty takes
-# the x/agent module's own MinBond, which is the right answer for almost
-# everyone.
-register_bond=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -304,11 +219,7 @@ while [[ $# -gt 0 ]]; do
     --grpc-addr)              grpc_addr="$2"; mark_flag SVPCHAIN_GRPC_ADDR;         shift 2 ;;
     --comet-rpc)              comet_rpc="$2"; mark_flag SVPCHAIN_COMET_RPC;         shift 2 ;;
     --indexer)                indexer="$2"; mark_flag SVPCHAIN_INDEXER;           shift 2 ;;
-    --agent-chain-id)         agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID;    shift 2 ;;
-    --agent-chain-rest)       agent_chain_rest="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_REST;  shift 2 ;;
     --public-url)             public_url="$2"; mark_flag SVPCHAIN_PERPS_AGENT_PUBLIC_URL;  shift 2 ;;
-    --operator-capabilities)  operator_capabilities="$2"; mark_flag SVPCHAIN_OPERATOR_CAPABILITIES; shift 2 ;;
-    --operator-metadata)      operator_metadata="$2"; mark_flag SVPCHAIN_OPERATOR_METADATA; shift 2 ;;
     --install-dir)            install_dir="$2"; mark_flag SVPCHAIN_INSTALL_DIR;       shift 2 ;;
     --image-tag)              image_tag="$2";         shift 2 ;;
     --platform)               platform="$2";          shift 2 ;;
@@ -322,9 +233,6 @@ while [[ $# -gt 0 ]]; do
     --config-dir)             mark_flag SVPCHAIN_CONFIG_DIR; shift 2 ;;
     --no-config)              shift ;;
     --init-config)            mode="init-config";     shift ;;
-    --gen-operator-key)       mode="gen-operator-key"; shift ;;
-    --register)               mode="register";        shift ;;
-    --bond)                   register_bond="$2";     shift 2 ;;
     --print-env)              mode="print-env";       shift ;;
     --skip-build)             skip_build="1";         shift ;;
     --print-config)           mode="print-config";    shift ;;
@@ -347,31 +255,7 @@ done
 # that URL here.
 public_url="${public_url%/}"
 
-# $operator_key holds the key material itself, seeded from the environment
-# above. Normalised and validated once by resolve_operator_key, which runs
-# before anything is rendered.
-#
-# Empty is still a shape the RENDERERS handle — --print-config and
-# --print-compose will show you the keyless form, and the binary itself boots
-# that way, advertising the execution skills and refusing them at call time.
-# What refuses empty is the install: see require_install_args.
-
 # ---- shared helpers -------------------------------------------------------
-
-# emit_operator_capabilities — render the capabilities list as a TOML array.
-emit_operator_capabilities() {
-  local out="[" first=1 cap
-  local saved_ifs="$IFS"; IFS=','
-  for cap in $operator_capabilities; do
-    [[ -z "$cap" ]] && continue
-    [[ "$first" == "1" ]] || out+=", "
-    out+="\"$cap\""
-    first=0
-  done
-  IFS="$saved_ifs"
-  out+="]"
-  printf '%s' "$out"
-}
 
 # render_agent_toml — emit this agent's agent.toml on stdout. Takes no
 # arguments on purpose: --print-config and the deploy render it the same way
@@ -404,17 +288,6 @@ grpc_addr        = "${grpc_addr}"
 comet_rpc_url    = "${comet_rpc}"
 indexer_base_url = "${indexer}"
 EOF
-  # A separate chain carrying x/agent + x/agentwallet, reached over its
-  # Cosmos REST API; unset, the agent-identity families run against the DEX
-  # chain connection.
-  if [[ -n "$agent_chain_id" || -n "$agent_chain_rest" ]]; then
-    [[ -n "$agent_chain_id" && -n "$agent_chain_rest" ]] || \
-      fail "--agent-chain-id and --agent-chain-rest must be set together"
-    echo ""
-    echo "[agent_chain]"
-    echo "id       = \"${agent_chain_id}\""
-    echo "rest_url = \"${agent_chain_rest}\""
-  fi
   cat <<EOF
 
 [cache]
@@ -428,28 +301,16 @@ EOF
     [[ -n "$transfer_max"       ]] && echo "transfer_max_usdc       = ${transfer_max}"
     [[ -n "$daily_withdraw_cap" ]] && echo "daily_withdraw_cap_usdc = ${daily_withdraw_cap}"
   fi
-  # The operator key turns this agent's delegated execution on. key_file points
-  # at the docker compose secret mount. The path is ABSOLUTE on purpose:
-  # internal/config
-  # resolves it against the agent.toml directory, so it points at the file
-  # mounted beside the config.
-  if [[ -n "$operator_key" ]]; then
-    cat <<EOF
-
-[operator]
-key_file     = "${SECRET_MOUNT_PATH}"
-capabilities = $(emit_operator_capabilities)
-metadata     = "${operator_metadata}"
-EOF
-  fi
+  # Explicit, because the block above ends on a `[[ … ]] && echo` whose false
+  # branch would otherwise be this function's exit status — and under `set -e`
+  # the `render_agent_toml > file` call site would exit the script silently.
+  return 0
 }
 
 # render_compose_yaml — emit the docker-compose.yml that runs this agent: the
 # image, its config mount, its data volume and its TCP port. Volumes use
 # absolute host paths so `docker compose up -d` works from any directory. The
-# rendered config, the operator key and the data volume live flat in
-# ${install_dir}; the key is mounted read-only beside the config so the
-# config-dir-relative key_file = "operator.key" resolves.
+# rendered config and the data volume live flat in ${install_dir}.
 render_compose_yaml() {
   echo "# Auto-generated by scripts/deploy.sh — do not edit by hand."
   echo "services:"
@@ -472,68 +333,10 @@ render_compose_yaml() {
       - ${install_dir}/agent.toml:/etc/${AGENT_NAME}/agent.toml:ro
       - ${install_dir}/data:/var/lib/${AGENT_NAME}
 EOF
-  # An explicit if, not `[[ … ]] && echo`: a false test as the last command
-  # would make the function return non-zero, and under `set -e` the
-  # `render_compose_yaml > file` call site would exit the script silently.
-  # A compose secret rather than a bind mount. Both end up as a read-only file
-  # in the container, but the secret keeps the operator key out of the volume
-  # list, which `docker inspect` prints in full.
-  #
-  # Note the uid/gid/mode options compose accepts on a secret are swarm-only
-  # and silently ignored here; the mount inherits the source file's ownership.
-  # That is fine because the image declares no USER, so the process is root and
-  # can read the 0600 file rsync lands.
-  if [[ -n "$operator_key" ]]; then
-    cat <<EOF
-    secrets:
-      - ${SECRET_NAME}
-
-secrets:
-  ${SECRET_NAME}:
-    file: ${install_dir}/${SECRET_FILE}
-EOF
-  fi
 }
 
 require_install_args() {
   [[ -n "$host" ]] || fail "--host is required (or set SVPCHAIN_DEPLOY_HOST)"
-  # A keyless deploy is a deploy of nothing. The binary tolerates it — the
-  # execution skills answer with a reason instead of an unknown-tool error —
-  # but that mode exists for local runs and tests, not for a host: without a
-  # key this agent cannot register on chain, cannot execute a delegated order,
-  # and cannot be paid through settlement, so what lands is a service whose
-  # every interesting call refuses. Refuse here rather than ship it and let the
-  # first caller discover it.
-  [[ -n "$operator_key" ]] || \
-    fail "SVPCHAIN_PERPS_AGENT_OPERATOR_KEY is required: without it this agent cannot register on chain, execute delegated orders, or be paid, so a deployed one would refuse every execution call. Run --gen-operator-key to mint one into ${config_dir}, or set it in ${config_dir}/config.sh yourself"
-}
-
-# validate_hex_key — the VALUE must look like a 32-byte hex operator key.
-# Takes the key itself, not a path, so validation happens before the material
-# is written anywhere. The error deliberately does not echo the value.
-validate_hex_key() {
-  [[ "$1" =~ ^(0x)?[0-9a-fA-F]{64}$ ]] \
-    || fail "SVPCHAIN_PERPS_AGENT_OPERATOR_KEY does not look like a 32-byte hex key (got ${#1} characters)"
-}
-
-# resolve_operator_key — normalise and validate the key material supplied in
-# SVPCHAIN_PERPS_AGENT_OPERATOR_KEY. Empty is allowed through here: the
-# print modes render the keyless form deliberately, and require_install_args is
-# what refuses to install one.
-#
-# The trim matters more than it looks: the natural way to set this is
-# `="$(cat …)"` or `="$(op read …)"`, and a trailing newline from either would
-# fail the hex check for a key that is perfectly good.
-#
-# The key must be distinct from every other agent's — an agent's on-chain id
-# derives from it and agent_self_register hashes this binary's own card, so a
-# shared key makes two agents collide on one registry record. With the agents
-# in separate repos nothing can check that here; it is an operational rule.
-resolve_operator_key() {
-  [[ -n "$operator_key" ]] || return 0
-  # Strip surrounding whitespace, including a trailing newline.
-  operator_key="$(printf '%s' "$operator_key" | tr -d '[:space:]')"
-  validate_hex_key "$operator_key"
 }
 
 # resolve_remote_install_dir — expand a leading ~ in $install_dir to the
@@ -654,7 +457,7 @@ EOF
 # source a group-writable file. Doing it in one step removes the window.
 #
 # Runs before require_install_args on purpose — bootstrapping a config needs
-# neither a host nor a key, which is the whole point of it.
+# no host, which is the whole point of it.
 if [[ "$mode" == "init-config" ]]; then
   src="${SCRIPT_DIR}/config.sh.example"
   dst="${config_dir}/config.sh"
@@ -671,146 +474,6 @@ if [[ "$mode" == "init-config" ]]; then
   step "Wrote ${dst} (mode 600)"
   info "Edit it — at minimum SVPCHAIN_DEPLOY_HOST and SVPCHAIN_PERPS_AGENT_PUBLIC_URL —"
   info "then run ./scripts/deploy.sh"
-  info "For delegated execution this agent also needs an operator key:"
-  info "  ./scripts/deploy.sh --gen-operator-key"
-  exit 0
-fi
-
-# ---- mode: gen-operator-key -----------------------------------------------
-#
-# Mint this agent's operator key and point the config file at it. One step, on
-# purpose: a key generated and not referenced deploys keyless and says nothing,
-# while a config line naming a key that was never generated fails the *source*
-# and takes every other mode down with it — which is exactly why the template
-# ships that line commented out.
-#
-# The key material never passes through this script. cmd/operator-keygen
-# creates the file itself with O_EXCL at 0600 and prints only the derived
-# address, so the secret is never in a shell variable, in argv, or in `set -x`
-# output. What comes back is the one thing needed next: the address to fund.
-#
-# Every refusal below is about the same fact. The key IS this agent's on-chain
-# identity — agent_self_register derives the agent id from it and bonds funds
-# against it — so replacing one strands a registration and its bond with
-# nothing on either side reporting a fault. There is deliberately no --force:
-# an operator who really means to start over deletes the file, which is a
-# harder thing to do by accident than passing a flag.
-#
-# Runs before require_install_args for the same reason init-config does:
-# bootstrapping an identity needs no host.
-if [[ "$mode" == "gen-operator-key" ]]; then
-  key_file="${config_dir}/operator.key"
-  config_file="${config_dir}/config.sh"
-
-  # --no-config asks the script to ignore the file this mode's whole second
-  # half writes to, so there is no coherent thing to do.
-  [[ "$use_config" == "1" ]] \
-    || fail "--gen-operator-key wires up the config file, so it cannot run with --no-config"
-  require_cmd go
-
-  # Already keyed, from whichever layer — --print-env names it. Includes the
-  # case where the key came from the environment for this one invocation, which
-  # is still an identity this agent may be registered under.
-  if [[ -n "$operator_key" ]]; then
-    fail "an operator key is already configured (--print-env says from where) — generating another would be a second identity, not a replacement"
-  fi
-  if [[ -e "$key_file" ]]; then
-    fail "refusing to overwrite ${key_file} — that key may already be registered on chain, with a bond posted against it; move it aside first if you truly mean to start over"
-  fi
-  if [[ ! -f "$config_file" ]]; then
-    fail "no config file at ${config_file} — run ./scripts/deploy.sh --init-config first"
-  fi
-  # Catches what the $operator_key check above cannot: a live assignment whose
-  # command substitution resolved to nothing (an `op read` against a vault that
-  # is not unlocked, say). Rewriting that line would throw away the operator's
-  # own key source.
-  if grep -q '^SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=' "$config_file"; then
-    fail "${config_file} already assigns SVPCHAIN_PERPS_AGENT_OPERATOR_KEY (it resolved to nothing — a locked vault?); fix or remove that line first"
-  fi
-
-  mkdir -p "$config_dir" || fail "could not create ${config_dir}"
-  repo_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
-  # GOWORK=off matches the Makefile: a go.work in the parent directory would
-  # resolve this module from sibling checkouts rather than the pinned versions.
-  # stdout is the address and nothing else; the key went to the file.
-  operator_addr="$(cd "$repo_dir" && GOWORK=off go run ./cmd/operator-keygen -out "$key_file")" \
-    || fail "key generation failed; ${key_file} was not written"
-
-  # Rewrite rather than append, so a second run cannot leave two assignments
-  # with the last one silently winning. The pattern is deliberately tight —
-  # an optional '#' immediately followed by the name — because the template
-  # carries indented `#   SVPCHAIN_…_OPERATOR_KEY="$(op read …)"` lines as
-  # documentation, and rewriting one of those would eat the docs and leave the
-  # real line untouched.
-  key_line="SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=\"\$(cat \"${key_file}\")\""
-  tmp_config="${config_file}.gen.$$"
-  (
-    umask 077
-    awk -v line="$key_line" '
-      /^#?SVPCHAIN_PERPS_AGENT_OPERATOR_KEY=/ && !seen { print line; seen = 1; next }
-      { print }
-      END { if (!seen) { print ""; print line } }
-    ' "$config_file" > "$tmp_config"
-  ) || { rm -f "$tmp_config"; fail "could not rewrite ${config_file}"; }
-  # mv rather than an in-place edit: the config file is never a half-written
-  # file that the next deploy would source.
-  mv "$tmp_config" "$config_file" || { rm -f "$tmp_config"; fail "could not replace ${config_file}"; }
-  chmod 600 "$config_file"
-
-  step "Operator key created"
-  pass "key     ${key_file} (mode 600)"
-  pass "address ${operator_addr}"
-  pass "config  ${config_file} now reads the key from that file"
-  info "Back up the key file. It is this agent's identity: lose it and the"
-  info "on-chain registration and its bond are unreachable, and a new key is a"
-  info "different agent rather than a recovery."
-  info "Next: fund ${operator_addr} with the bond plus gas, deploy, then"
-  info "./scripts/deploy.sh --register"
-  exit 0
-fi
-
-# ---- mode: register -------------------------------------------------------
-#
-# Put the deployed agent on chain, or bring an already-registered one back in
-# line with what it now serves.
-#
-# This cannot be a local operation. What gets published is the sha256 of the
-# agent card as SERVED, so the thing that registers has to be a running agent
-# answering at a URL — hence agent_self_register is a tool on the A2A surface,
-# and this mode is a client of the agent it just deployed rather than another
-# renderer of local state.
-#
-# It runs against $public_url deliberately, not over the ssh connection. That
-# URL is what goes into the registration and what a verifier will fetch, so a
-# registration that succeeds through it has proven the route as a side effect.
-# A host that DNS or nginx does not point here fails at this step instead of
-# registering an endpoint that 404s — see cmd/agent-register for the loopback
-# escape hatch when that is genuinely wanted.
-#
-# The key travels in the environment of the child process rather than in argv,
-# where `ps` would show it. It signs only the auth challenge that proves the
-# caller is the operator; the transaction itself is signed by the agent, on the
-# remote, with the copy the deploy shipped as a compose secret.
-if [[ "$mode" == "register" ]]; then
-  require_cmd go
-  resolve_operator_key
-  [[ -n "$operator_key" ]] \
-    || fail "no operator key configured — registration is the operator proving it holds the key this agent runs as (see --gen-operator-key)"
-
-  repo_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
-  step "Registering ${AGENT_NAME} at ${public_url}"
-  # A subshell so the export and the cd die with it. GOWORK=off matches the
-  # Makefile: a go.work in the parent directory would resolve this module from
-  # sibling checkouts rather than the versions go.mod pins.
-  (
-    cd "$repo_dir" || exit 1
-    export SVPCHAIN_PERPS_AGENT_OPERATOR_KEY="$operator_key"
-    if [[ -n "$register_bond" ]]; then
-      GOWORK=off go run ./cmd/agent-register -url "$public_url" -bond "$register_bond"
-    else
-      GOWORK=off go run ./cmd/agent-register -url "$public_url"
-    fi
-  ) || fail "registration failed"
   exit 0
 fi
 
@@ -820,29 +483,21 @@ fi
 # is SOURCED, so a value can be computed rather than written. That combination
 # makes "why is it deploying there" genuinely hard to answer by reading. This
 # prints the resolved value of every setting next to where it came from.
-#
-# The operator key is reported as set/unset with a length, never echoed: the
-# main reason to reach for this mode after configuring a key is to confirm the
-# config file computed one, and that must not require printing a secret.
 if [[ "$mode" == "print-env" ]]; then
   # Name → the local variable holding the resolved value. Parallel arrays
   # rather than an associative array, because macOS still ships bash 3.2.
   env_names=(
     SVPCHAIN_CONFIG_DIR SVPCHAIN_DEPLOY_HOST SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
-    SVPCHAIN_COMET_RPC SVPCHAIN_INDEXER SVPCHAIN_AGENT_CHAIN_ID
-    SVPCHAIN_AGENT_CHAIN_REST SVPCHAIN_PERPS_AGENT_PUBLIC_URL
-    SVPCHAIN_PERPS_AGENT_OPERATOR_KEY SVPCHAIN_OPERATOR_CAPABILITIES
-    SVPCHAIN_OPERATOR_METADATA SVPCHAIN_MARKETS_REFRESH
+    SVPCHAIN_COMET_RPC SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL
+    SVPCHAIN_MARKETS_REFRESH
     SVPCHAIN_DEPOSIT_MAX_USDC SVPCHAIN_WITHDRAW_MAX_USDC
     SVPCHAIN_TRANSFER_MAX_USDC SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
     SVPCHAIN_INSTALL_DIR
   )
   env_values=(
     "$config_dir" "$host" "$chain_id" "$grpc_addr"
-    "$comet_rpc" "$indexer" "$agent_chain_id"
-    "$agent_chain_rest" "$public_url"
-    "$operator_key" "$operator_capabilities"
-    "$operator_metadata" "$markets_refresh"
+    "$comet_rpc" "$indexer" "$public_url"
+    "$markets_refresh"
     "$deposit_max" "$withdraw_max"
     "$transfer_max" "$daily_withdraw_cap"
     "$install_dir"
@@ -866,14 +521,6 @@ if [[ "$mode" == "print-env" ]]; then
     else                            origin="default"
     fi
 
-    # Never print the key. A length is enough to tell "computed correctly"
-    # from "the command substitution returned nothing". Trimmed but NOT
-    # validated: a malformed key should still be diagnosable here rather than
-    # aborting the one mode you would reach for to diagnose it.
-    if [[ "$name" == "SVPCHAIN_PERPS_AGENT_OPERATOR_KEY" ]]; then
-      value="$(printf '%s' "$value" | tr -d '[:space:]')"
-      if [[ -n "$value" ]]; then value="set (${#value} chars)"; else value="unset"; fi
-    fi
     [[ -n "$value" ]] || value="(empty)"
 
     printf '%-36s %-14s %s\n' "$name" "$origin" "$value"
@@ -884,10 +531,7 @@ fi
 # ---- mode: print-config ---------------------------------------------------
 
 if [[ "$mode" == "print-config" ]]; then
-  # Preview the agent.toml this deploy would ship, [operator] block included
-  # when the environment supplies a key. The key material is never in this
-  # file — it ships as a separate compose secret.
-  resolve_operator_key
+  # Preview the agent.toml this deploy would ship.
   render_agent_toml
   exit 0
 fi
@@ -896,9 +540,7 @@ fi
 
 if [[ "$mode" == "print-compose" ]]; then
   # Preview the docker-compose.yml. Uses a placeholder install_dir/image when
-  # not resolved, and shows the secrets block when a key is configured. The key
-  # itself is not here either — the block points at the file the deploy stages.
-  resolve_operator_key
+  # not resolved.
   image_ref="${IMAGE_REPO}:${image_tag:-<tag>}"
   render_compose_yaml
   exit 0
@@ -935,10 +577,6 @@ require_cmd rsync
 require_cmd ssh
 require_cmd go
 
-# Normalise and validate the operator key material. Its presence was already
-# required above; this is what checks it is actually a key.
-resolve_operator_key
-
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "$REPO_DIR"
 
@@ -950,10 +588,9 @@ image_ref="${IMAGE_REPO}:${image_tag}"
 image_tar="${REPO_DIR}/build/${AGENT_NAME}.image.tar"
 mkdir -p "${REPO_DIR}/build"
 
-step "Preflight (operator + remote)"
+step "Preflight (local + remote)"
 info "host=$host image=$image_ref platform=$platform"
 info "install_dir=$install_dir public_url=$public_url"
-info "  ${AGENT_NAME} :${AGENT_PORT} — operator key set (execution ON)"
 if [[ "$dry_run" != "1" ]]; then
   ssh -o BatchMode=yes "$host" "docker version --format '{{.Server.Version}}'" \
     >/dev/null 2>&1 \
@@ -968,14 +605,14 @@ fi
 resolve_remote_install_dir
 info "install_dir=$install_dir"
 
-# Phase 1: build (On operator)
-step "On operator: docker build --platform $platform"
+# Phase 1: build (local)
+step "Local: docker build --platform $platform"
 if [[ "$skip_build" == "1" ]]; then
   info "--skip-build: reusing existing local image $image_ref"
   [[ -n "$(local_image_id "$image_ref")" ]] || fail "image $image_ref not found locally; drop --skip-build"
 else
   # Vendored build (see cmd/svpchain-perps-agent/Dockerfile): the go.mod
-  # replace to ../svpagent/protocol resolves on the operator, and the vendored
+  # replace to ../svpagent/protocol resolves on the deploy machine, and the vendored
   # tree makes the Docker context self-contained.
   run_or_print "go mod vendor"
   build_cmd="docker build --platform $platform"
@@ -987,22 +624,21 @@ else
   run_or_print "$build_cmd"
 fi
 
-# Phase 2: save (On operator)
-step "On operator: docker save (cached by image id)"
+# Phase 2: save (local)
+step "Local: docker save (cached by image id)"
 save_if_changed "$image_ref" "$image_tar"
 expected_id="$(cat "${image_tar}.id" 2>/dev/null || echo "")"
 
-# Phase 3: ship config + compose + the image tar (operator → remote)
-step "On operator → remote: rsync configs + image tar to $install_dir"
+# Phase 3: ship config + compose + the image tar (local → remote)
+step "Local → remote: rsync configs + image tar to $install_dir"
 
 # One staging directory, one rsync: everything the remote needs beside the
 # image is rendered here first, so the transfer is a single round trip.
 #
-# The modes are deliberate. The operator key is a secret and must land 0600,
-# and rsync -a carrying the staged mode is the only portable way to get it
-# there — macOS's openrsync rejects --chmod=F600. The other two files shipped
-# from mktemp (0600) before this, so pin the whole directory to match rather
-# than let the umask quietly relax them to 0644 on every deployed host. 0755
+# The modes are deliberate. Both files shipped from mktemp (0600) before this,
+# so pin the whole directory to match rather than let the umask quietly relax
+# them to 0644 on every deployed host — rsync -a carrying the staged mode is
+# the only portable way, since macOS's openrsync rejects --chmod=F600. 0755
 # on the directory itself keeps $install_dir at the mode `mkdir -p` gave it:
 # with a trailing slash on the source, rsync applies the source root's
 # attributes to the destination root.
@@ -1011,12 +647,6 @@ trap 'rm -rf "$stage_dir"' EXIT
 
 render_agent_toml   > "$stage_dir/agent.toml"
 render_compose_yaml > "$stage_dir/docker-compose.yml"
-if [[ -n "$operator_key" ]]; then
-  # printf, not cp: the key came from the environment, and this is the one
-  # place it touches a disk. mktemp -d gave $stage_dir 0700, so the file is
-  # never readable by other users even between creation and the chmod below.
-  printf '%s\n' "$operator_key" > "$stage_dir/${SECRET_FILE}"
-fi
 chmod 600 "$stage_dir"/*
 chmod 755 "$stage_dir"
 
@@ -1043,7 +673,7 @@ step "On remote: docker compose up -d"
 remote_exec "docker rm -f $AGENT_NAME 2>/dev/null || true"
 remote_exec "docker compose -f $install_dir/docker-compose.yml up -d"
 
-# Phase 6: verify (On operator) — smoke-test over loopback on the remote.
+# Phase 6: verify (local) — smoke-test over loopback on the remote.
 step "On remote: smoke test (healthz + agent card over loopback via ssh)"
 if [[ "$dry_run" == "1" ]]; then
   info "[dry-run] would ssh $host curl -> http://127.0.0.1:${AGENT_PORT}/healthz + agent card"
@@ -1071,7 +701,7 @@ else
   if [[ "$skills" =~ ^[0-9]+$ ]]; then
     pass "$AGENT_NAME :${AGENT_PORT} — /healthz 200, card served ($skills skills)"
   else
-    # jq may be missing on the operator — the card body already proves the
+    # jq may be missing locally — the card body already proves the
     # endpoint answers; don't fail the deploy over the count.
     pass "$AGENT_NAME :${AGENT_PORT} — /healthz 200, card fetched (skill count unverified)"
   fi
@@ -1079,9 +709,3 @@ fi
 
 step "Done — $AGENT_NAME $image_tag running on $host (:${AGENT_PORT}, advertised at $public_url)"
 
-# Deploying does not touch the chain, and a card change that never reaches the
-# registry is the failure this line exists to prevent: verifiers recompute the
-# capability hash from a live fetch, so an agent serving a card that no longer
-# matches its registration reads as unverified with every process healthy.
-info "If the card or the public URL changed, publish it:"
-info "  ./scripts/deploy.sh --register    (also does the first registration)"

@@ -1,5 +1,5 @@
-// Package toolbridge exposes the MCP tool handlers in internal/mcp/tools — and
-// the agent's own chain-module services — as A2A operations.
+// Package toolbridge exposes the MCP tool handlers in internal/mcp/tools as
+// A2A operations.
 //
 // Every MCP handler shares one shape, func(ctx, *mcp.CallToolRequest, In)
 // (*mcp.CallToolResult, Out, error), and none of them reads the request
@@ -15,10 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
-	"strconv"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -59,80 +56,6 @@ func adapt[In, Out any](h handler[In, Out]) func(context.Context, json.RawMessag
 	}
 }
 
-// adaptNative wraps a plain service method (no MCP types) into an Op call —
-// the twin of adapt for the agent's own chain-module operations.
-func adaptNative[In, Out any](f func(context.Context, In) (Out, error)) func(context.Context, json.RawMessage) (any, error) {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in In
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &in); err != nil {
-				return nil, fmt.Errorf("decode args: %w", err)
-			}
-		}
-		return f(ctx, in)
-	}
-}
-
-// adaptStrictNative is adaptNative refusing unknown top-level arg keys. The
-// execution inputs nest their parameters under a wrapper object ("order",
-// "cancel", "deposit"); a caller passing the fields flat — the read tools'
-// shape — would otherwise have them silently dropped and the tool would run
-// against zero values, e.g. a deposit resolving to subaccount 0 no matter
-// what was asked. Refusing up front turns that trap into an actionable error.
-func adaptStrictNative[In, Out any](f func(context.Context, In) (Out, error)) func(context.Context, json.RawMessage) (any, error) {
-	allowed := jsonKeysOf[In]()
-	inner := adaptNative(f)
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		if len(raw) > 0 {
-			var top map[string]json.RawMessage
-			if err := json.Unmarshal(raw, &top); err != nil {
-				return nil, fmt.Errorf("decode args: %w", err)
-			}
-			for k := range top {
-				if !allowed[k] {
-					return nil, fmt.Errorf(
-						"unknown args key %q — this tool takes %s; tool parameters nest under the wrapper object, not at the top level",
-						k, keyList(allowed))
-				}
-			}
-		}
-		return inner(ctx, raw)
-	}
-}
-
-// jsonKeysOf returns the JSON keys of In's top-level struct fields.
-func jsonKeysOf[In any]() map[string]bool {
-	keys := map[string]bool{}
-	t := reflect.TypeFor[In]()
-	if t.Kind() != reflect.Struct {
-		return keys
-	}
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if !f.IsExported() {
-			continue
-		}
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		switch name {
-		case "-":
-			continue
-		case "":
-			name = f.Name
-		}
-		keys[name] = true
-	}
-	return keys
-}
-
-func keyList(keys map[string]bool) string {
-	names := make([]string, 0, len(keys))
-	for k := range keys {
-		names = append(names, strconv.Quote(k))
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
-
 func resultText(res *mcp.CallToolResult) string {
 	for _, c := range res.Content {
 		if t, ok := c.(*mcp.TextContent); ok && t.Text != "" {
@@ -155,15 +78,6 @@ func (r *Registry) add(skill, tool string, call func(context.Context, json.RawMe
 		panic(fmt.Sprintf("toolbridge: duplicate tool %q", tool))
 	}
 	r.ops[tool] = Op{Skill: skill, Tool: tool, Call: call}
-}
-
-// addRefusing registers a tool that always refuses with reason — used for
-// skills whose backing service is not configured, so a caller learns the
-// requirement instead of meeting an unknown-tool error.
-func (r *Registry) addRefusing(skill, tool, reason string) {
-	r.add(skill, tool, func(context.Context, json.RawMessage) (any, error) {
-		return nil, errors.New(reason)
-	})
 }
 
 // Lookup returns the operation registered under tool.

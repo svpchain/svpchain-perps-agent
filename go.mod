@@ -15,7 +15,6 @@ require (
 	github.com/ethereum/go-ethereum v1.15.11
 	github.com/modelcontextprotocol/go-sdk v1.0.0
 	github.com/stretchr/testify v1.11.1
-	github.com/svpchain/svpdt v0.2.0
 	golang.org/x/time v0.12.0
 	google.golang.org/grpc v1.80.0
 )
@@ -248,6 +247,7 @@ require (
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/supranational/blst v0.3.14 // indirect
+	github.com/svpchain/svpdt v0.2.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tendermint/go-amino v0.16.0 // indirect
 	github.com/tidwall/btree v1.7.0 // indirect
@@ -286,13 +286,13 @@ require (
 	golang.org/x/arch v0.17.0 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
-	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/api v0.247.0 // indirect
 	google.golang.org/genproto v0.0.0-20250603155806-513f23925822 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260427160629-7cedc36a6bc4 // indirect
@@ -307,10 +307,8 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-// These agents consume the chain's generated x/*/types (agent, agentwallet,
-// clob) from a sibling checkout. x/agent + x/agentwallet currently live on the
-// feat/delegation-adversarial-tests branch checked out at ../svpagent; point
-// this at ../svpchain-main/protocol once that branch merges.
+// This agent consumes the chain's generated x/*/types (clob, subaccounts,
+// perpetuals…) from a sibling checkout at ../svpagent.
 replace github.com/dydxprotocol/v4-chain/protocol => ../svpagent/protocol
 
 // The replace blocks below are copied VERBATIM from protocol/go.mod, which is

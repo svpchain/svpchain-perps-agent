@@ -9,10 +9,9 @@ import (
 
 // Service answers the read-layer questions from public indexer data.
 //
-// It owns an indexer client and nothing else — no keys, no chain connection, no
-// delegation state. That is the whole point of the read layer: it is safe to
-// run and expose without any of the trust machinery the execution layer needs,
-// so it can go live, and be paid for over x402, before delegation exists.
+// It owns an indexer client and nothing else — no keys, no chain connection.
+// That is the whole point of the read layer: it is safe to run and expose
+// without any trust machinery.
 type Service struct {
 	idx MarketReader
 }

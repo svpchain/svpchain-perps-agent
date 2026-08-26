@@ -3,9 +3,7 @@
 #
 # The resulting image contains only the agent binary plus ca-certificates.
 # Runtime config lives in agent.toml, mounted read-only at
-# /etc/svpchain-perps-agent/agent.toml; the optional operator key is mounted
-# beside it. Use a DISTINCT operator key per binary — the agent id derives
-# from the key and self-registration hashes this binary's own card.
+# /etc/svpchain-perps-agent/agent.toml.
 #
 # Build from the repo root, from a VENDORED dependency tree — the go.mod
 # replace to ../svpagent/protocol points outside the build context, so the

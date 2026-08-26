@@ -101,9 +101,8 @@ type GetOraclePriceOutput struct {
 // eth_calls. This binary has no EVM configuration at all — internal/config
 // carries no [evm] section, so Deps.Chain.EVM was always nil and upstream's
 // requireOracle could only ever return this same refusal. The tool stays
-// registered and advertised because it is on the served agent card, whose
-// sha256 is published on chain by agent_self_register; dropping it would force
-// an agent_self_update on every deployment for no behavioural gain.
+// registered and advertised because it is on the served agent card callers
+// already know; dropping it would move the card for no behavioural gain.
 //
 // The authorize call must stay ahead of the refusal: an unauthenticated caller
 // gets ErrNoTenant, exactly as before. That ordering is also why this stays a

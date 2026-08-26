@@ -11,27 +11,22 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/a2aserver"
-	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 	"github.com/svpchain/svpchain-perps-agent/internal/wire"
 )
 
-// ★ The card this agent serves is hashed into its on-chain registration, and a
-// verifier recomputes that hash from a live fetch. So the card is an interface,
-// not an implementation detail: it must not change by accident — not when this
-// repo is edited, and not when the core library it composes is upgraded.
-//
-// The golden was carried over from the monorepo unchanged, which is what proves
-// the split moved this agent without disturbing its on-chain identity. A
-// deliberate change here is fine; it just has to be deliberate, and followed by
-// agent_self_update on every deployment. Re-record one with:
+// ★ The card this agent serves is what callers read to learn its surface. So
+// the card is an interface, not an implementation detail: it must not change
+// by accident — not when this repo is edited, and not when the core library
+// it composes is upgraded. A deliberate change is fine; it just has to be
+// deliberate. Re-record the golden with:
 //
 //	go test ./cmd/... -run TestCardMatchesGolden -update-goldens
 var updateGoldens = flag.Bool("update-goldens", false, "rewrite the card golden")
 
 func TestCardMatchesGolden(t *testing.T) {
 	reg := toolbridge.NewEmpty()
-	wire.PerpsProfile.Register(reg, &tools.Handlers{}, agentchain.New(nil, nil, nil, nil, nil, nil, nil), nil)
+	wire.PerpsProfile.Register(reg, &tools.Handlers{})
 
 	got, err := json.Marshal(a2aserver.BuildAgentCardFor(identity, "https://agents.example.test/perps", reg))
 	if err != nil {
@@ -52,8 +47,7 @@ func TestCardMatchesGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(got)+"\n" != string(want) {
-		t.Errorf("card bytes changed — the on-chain capability hash no longer matches "+
-			"until agent_self_update runs.\n got: %s\nwant: %s", got, want)
+		t.Errorf("card bytes changed — re-record the golden if this is deliberate.\n got: %s\nwant: %s", got, want)
 	}
 }
 
@@ -62,7 +56,7 @@ func TestCardMatchesGolden(t *testing.T) {
 // that the registry does not serve.
 func TestCardMatchesRegistry(t *testing.T) {
 	reg := toolbridge.NewEmpty()
-	wire.PerpsProfile.Register(reg, &tools.Handlers{}, agentchain.New(nil, nil, nil, nil, nil, nil, nil), nil)
+	wire.PerpsProfile.Register(reg, &tools.Handlers{})
 	card := a2aserver.BuildAgentCardFor(identity, "https://agents.example.test/perps", reg)
 
 	bySkill := reg.BySkill()

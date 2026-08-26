@@ -51,7 +51,7 @@ func (fakeReader) GetHistoricalFunding(context.Context, string) (*indexer.Histor
 func newTestExecutor() *Executor {
 	reg := toolbridge.NewEmpty()
 	reg.RegisterMarketData(&tools.Handlers{})
-	return NewFullExecutor(marketdata.NewService(fakeReader{}), reg, nil, nil, nil)
+	return NewFullExecutor(marketdata.NewService(fakeReader{}), reg, nil)
 }
 
 func TestHandleMarketDataQueries(t *testing.T) {
@@ -117,7 +117,7 @@ func TestEstimateFlowsThroughToTheAuctionMath(t *testing.T) {
 // wire.LendingProfile as a convenient family-less registry, and that profile is
 // gone. The assertion never depended on which profile it was.
 func TestLegacyMarketDataQueryRefusedWithoutTheFamily(t *testing.T) {
-	e := NewFullExecutor(nil, toolbridge.NewEmpty(), nil, nil, nil)
+	e := NewFullExecutor(nil, toolbridge.NewEmpty(), nil)
 	_, err := e.handleMarketData(t.Context(), Request{Skill: toolbridge.SkillMarketData, Query: "markets"})
 	if err == nil || !strings.Contains(err.Error(), "does not serve") {
 		t.Errorf("expected a does-not-serve refusal, got %v", err)

@@ -6,13 +6,13 @@
 // network endpoints, the same all-or-nothing rules for optional families, and
 // the same graceful degradation — an unset optional family means those
 // operations refuse at call time with a reason, and the agent still boots. On
-// top of that the agent adds its A2A identity (public_url) and an optional
-// [operator] section holding the delegated signer's key reference; without it
-// the execution skill refuses.
+// top of that the agent adds its A2A identity (public_url).
 //
-// The EVM / swap / bridge / oracle / lendora sections are gone along with the
-// surfaces that read them. Unknown keys are collected rather than rejected, so
-// a deployed agent.toml still carrying them loads unchanged.
+// The EVM / swap / bridge / oracle / lendora sections, and later the
+// [operator] / [agent_chain] sections of the delegated-execution stack, are
+// gone along with the surfaces that read them. Unknown keys are collected
+// rather than rejected, so a deployed agent.toml still carrying them loads
+// unchanged.
 package config
 
 import (
@@ -26,9 +26,8 @@ import (
 
 // Config is the agent's configuration.
 type Config struct {
-	DEXChain   DEXChainConfig   `toml:"dex_chain"`
-	AgentChain AgentChainConfig `toml:"agent_chain"`
-	ListenAddr string           `toml:"listen_addr"`
+	DEXChain   DEXChainConfig `toml:"dex_chain"`
+	ListenAddr string         `toml:"listen_addr"`
 
 	// PublicURL is how callers reach this agent, advertised in the Agent Card.
 	// Defaults to "http://localhost"+ListenAddr when empty.
@@ -44,10 +43,9 @@ type Config struct {
 	// the signed tx a caller lands via broadcast_signed_tx.
 	BroadcastMode string `toml:"broadcast_mode"`
 
-	Cache    CacheConfig  `toml:"cache"`
-	Limits   LimitsConfig `toml:"limits"`
-	Fee      FeeConfig    `toml:"fee"`
-	Operator Operator     `toml:"operator"`
+	Cache  CacheConfig  `toml:"cache"`
+	Limits LimitsConfig `toml:"limits"`
+	Fee    FeeConfig    `toml:"fee"`
 }
 
 // DEXChainConfig points the agent at the DEX chain (an EVM-compatible
@@ -60,40 +58,6 @@ type DEXChainConfig struct {
 	GrpcAddr       string `toml:"grpc_addr"`
 	CometRPCURL    string `toml:"comet_rpc_url"`
 	IndexerBaseURL string `toml:"indexer_base_url"`
-}
-
-// AgentChainConfig points the agent-identity families — x/agent registry,
-// x/agentwallet delegation, and delegated execution — at the chain carrying
-// those modules when it is not the DEX chain itself. The agent chain is
-// reached over its Cosmos REST API (the gRPC-gateway, typically :1317), not
-// gRPC. Optional: unset, those families run against the DEX chain connection
-// (the single-chain default). Note delegated orders execute on whichever
-// chain verifies the delegation, so a split deployment trades against the
-// agent chain's CLOB.
-type AgentChainConfig struct {
-	ID      string `toml:"id"`
-	RestURL string `toml:"rest_url"`
-}
-
-// Enabled reports whether a separate agent chain is configured.
-func (a AgentChainConfig) Enabled() bool { return a.RestURL != "" }
-
-// Operator configures the agent's own on-chain identity: the eth_secp256k1
-// key it signs delegated executions (and its own registration) with, and the
-// registration metadata it advertises. Optional — without a key the
-// svpchain-execution skill refuses with a reason, exactly like the other
-// unconfigured families.
-type Operator struct {
-	// KeyFile is a file holding the operator private key as hex. The
-	// SVPCHAIN_PERPS_AGENT_OPERATOR_KEY env var takes precedence when set, so
-	// deployments can inject the key without touching disk.
-	KeyFile string `toml:"key_file"`
-
-	// Capabilities are the capability strings registered on chain.
-	Capabilities []string `toml:"capabilities"`
-
-	// Metadata is the free-form metadata registered on chain.
-	Metadata string `toml:"metadata"`
 }
 
 // FeeConfig sets the gas fee stamped onto non-CLOB txs. Short-term CLOB
@@ -138,14 +102,11 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("decode TOML %s: %w", path, err)
 	}
 	c.ApplyDefaults()
-	// Relative paths resolve against the config file's own directory, so the
-	// "operator.key next to agent.toml" layout the deploy script ships works
-	// regardless of where the agent is launched from.
+	// Relative paths resolve against the config file's own directory, so a
+	// state file kept next to agent.toml works regardless of where the agent
+	// is launched from.
 	if c.TransferOutCapPath != "" && !filepath.IsAbs(c.TransferOutCapPath) {
 		c.TransferOutCapPath = filepath.Join(filepath.Dir(path), c.TransferOutCapPath)
-	}
-	if c.Operator.KeyFile != "" && !filepath.IsAbs(c.Operator.KeyFile) {
-		c.Operator.KeyFile = filepath.Join(filepath.Dir(path), c.Operator.KeyFile)
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -181,9 +142,6 @@ func (c *Config) Validate() error {
 	}
 	if c.ListenAddr == "" {
 		return fmt.Errorf("listen_addr is required")
-	}
-	if (c.AgentChain.ID == "") != (c.AgentChain.RestURL == "") {
-		return fmt.Errorf("agent_chain.id and agent_chain.rest_url must be set together")
 	}
 	if err := c.Fee.validate(); err != nil {
 		return err

@@ -18,10 +18,6 @@ import (
 	"time"
 
 	"cosmossdk.io/log"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
-	wallettypes "github.com/dydxprotocol/v4-chain/protocol/x/agentwallet/types"
-	settlementtypes "github.com/dydxprotocol/v4-chain/protocol/x/settlement/types"
 	"google.golang.org/grpc"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
@@ -34,11 +30,7 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
-	"github.com/svpchain/svpchain-perps-agent/internal/agentrest"
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
-	"github.com/svpchain/svpchain-perps-agent/internal/delegated"
-	"github.com/svpchain/svpchain-perps-agent/internal/operator"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
 
@@ -53,16 +45,6 @@ type App struct {
 	Indexer  *indexer.Client
 	GrpcConn *grpc.ClientConn
 	Logger   log.Logger
-
-	// Delegated is the execution service (nil when keyless). Exposed so the
-	// server layer can hand it the served agent-card bytes — the capability
-	// hash it registers on chain is sha256 of exactly those bytes.
-	Delegated *delegated.Service
-
-	// ReadTenants admits verified delegated-read credentials as synthetic
-	// tenants; already registered as a policy dynamic source. Non-nil even
-	// when Delegated is nil — it just never admits anyone then.
-	ReadTenants *delegated.ReadTenantSource
 }
 
 // Close releases the app's long-lived connections.
@@ -105,19 +87,6 @@ func (a dynamicTenantAdapter) LookupTenantPolicy(tenantID string) (policy.Tenant
 		AllowedSubaccounts: rec.AllowedSubaccounts,
 		KillSwitch:         rec.KillSwitch,
 	}, true
-}
-
-// multiDynamicSource fans the policy engine's single dynamic-source slot out
-// to several tenant populations; the first source that answers wins.
-type multiDynamicSource []policy.DynamicSource
-
-func (m multiDynamicSource) LookupTenantPolicy(tenantID string) (policy.TenantPolicy, bool) {
-	for _, src := range m {
-		if tp, ok := src.LookupTenantPolicy(tenantID); ok {
-			return tp, true
-		}
-	}
-	return policy.TenantPolicy{}, false
 }
 
 // BuildProfile wires the configuration into a ready-to-run App registering
@@ -174,16 +143,10 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 	ipLimit := auth.NewIPRateLimiter(auth.DefaultIPChallengeRate, auth.DefaultIPChallengeWindow, nil)
 	sessionBearers := auth.NewSessionBearers(auth.DefaultBearerTTL, nil)
 
-	// Two dynamic tenant populations resolve through the engine's single
-	// fallback slot: bearer-minted tenants ("auto-…") and proof-derived
-	// delegated-read tenants ("svpdt-…"). The prefixes keep the id spaces
-	// disjoint, so first-hit-wins never shadows.
-	readTenants := delegated.NewReadTenantSource(nil)
+	// Bearer-minted tenants ("auto-…") resolve through the engine's dynamic
+	// fallback slot.
 	policyEngine := policy.NewEngine(nil)
-	policyEngine.SetDynamicSource(multiDynamicSource{
-		dynamicTenantAdapter{store: dynamicTenants},
-		readTenants,
-	})
+	policyEngine.SetDynamicSource(dynamicTenantAdapter{store: dynamicTenants})
 
 	deps := tools.Deps{
 		Chain:             chainDeps,
@@ -209,86 +172,16 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 
 	registry := toolbridge.NewEmpty()
 
-	// The agent-identity families — x/agent registry, x/agentwallet
-	// delegation, delegated execution — run against the chain that carries
-	// those modules. By default that is the DEX chain itself over the shared
-	// gRPC conn; a configured [agent_chain] switches everything below
-	// (queries, tx builds, the operator's signing and broadcast) to that
-	// chain's Cosmos REST API instead.
-	agentChainID := cfg.DEXChain.ID
-	var (
-		agentQ         agentchain.AgentQuerier
-		walletQ        agentchain.WalletQuerier
-		settlementQ    delegated.SettlementQuerier
-		agentAccount   chain.AccountClient   = chainDeps.Account
-		agentBroadcast chain.BroadcastClient = chainDeps.Broadcast
-		agentAuth      delegated.AuthAccountQuerier
-	)
-	if cfg.AgentChain.Enabled() {
-		rest := agentrest.New(cfg.AgentChain.RestURL, encCfg.Codec, encCfg.InterfaceRegistry)
-		agentChainID = cfg.AgentChain.ID
-		agentQ = rest
-		walletQ = rest.Wallet()
-		settlementQ = rest
-		agentAccount = rest.AccountClient()
-		agentBroadcast = rest
-		agentAuth = rest
-		logger.Info("agent chain configured", "chain_id", agentChainID, "rest", cfg.AgentChain.RestURL)
-	} else {
-		agentQ = agenttypes.NewQueryClient(grpcConn)
-		walletQ = wallettypes.NewQueryClient(grpcConn)
-		settlementQ = settlementtypes.NewQueryClient(grpcConn)
-		agentAuth = authtypes.NewQueryClient(grpcConn)
-	}
-	agentAsm := builder.NewAssembler(agentChainID, cfg.Fee.Denom, cfg.Fee.Amount, cfg.Fee.GasLimit)
-	agentSvc := agentchain.New(agentQ, walletQ, agentAsm, agentAccount, policyEngine, agentBroadcast, encCfg.InterfaceRegistry)
-
-	// Delegated execution goes live only when an operator key is configured;
-	// keyless deployments register the same operations as informative
-	// refusals, keeping the read layer's "advertised but refused" contract.
-	operatorPriv, operatorAddr, err := operator.Load(cfg.Operator)
-	if err != nil {
-		grpcConn.Close()
-		return nil, err
-	}
-	var delegatedSvc *delegated.Service
-	if operatorPriv != nil {
-		delegatedSvc = delegated.New(delegated.Config{
-			Priv:         operatorPriv,
-			Operator:     operatorAddr,
-			ChainID:      agentChainID,
-			Fee:          operator.FeeSpec{Denom: cfg.Fee.Denom, Amount: cfg.Fee.Amount, GasLimit: cfg.Fee.GasLimit},
-			AgentQ:       agentQ,
-			AuthQ:        delegated.NewAuthKeyClient(agentAuth, encCfg.InterfaceRegistry),
-			WalletQ:      walletQ,
-			SettlementQ:  settlementQ,
-			Markets:      mkts,
-			Account:      agentAccount,
-			Broadcast:    agentBroadcast,
-			Policy:       policyEngine,
-			Limits:       limitsCfg,
-			Endpoint:     cfg.PublicURL,
-			Capabilities: cfg.Operator.Capabilities,
-			Metadata:     cfg.Operator.Metadata,
-		})
-		logger.Info("delegated execution enabled", "operator", operatorAddr)
-	}
-
-	// Registration runs last so every service the profile may reference —
-	// including a nil delegatedSvc, whose registrations become informative
-	// refusals — is in its final state.
-	p.Register(registry, handlers, agentSvc, delegatedSvc)
+	p.Register(registry, handlers)
 
 	return &App{
-		Handlers:    handlers,
-		Registry:    registry,
-		Markets:     mkts,
-		Tenants:     dynamicTenants,
-		Sessions:    sessionBearers,
-		Indexer:     idx,
-		GrpcConn:    grpcConn,
-		Delegated:   delegatedSvc,
-		ReadTenants: readTenants,
-		Logger:      logger,
+		Handlers: handlers,
+		Registry: registry,
+		Markets:  mkts,
+		Tenants:  dynamicTenants,
+		Sessions: sessionBearers,
+		Indexer:  idx,
+		GrpcConn: grpcConn,
+		Logger:   logger,
 	}, nil
 }

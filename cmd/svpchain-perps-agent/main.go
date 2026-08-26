@@ -1,7 +1,6 @@
 // Command svpchain-perps-agent is the perpetuals-trading A2A agent for an
 // SVP-Chain DEX: market data, accounts, unsigned order and funds tx building,
-// the Cosmos broadcast rail, self-service auth, the chain's agent/agentwallet
-// modules, and delegated perps execution when an operator key is configured.
+// the Cosmos broadcast rail, and self-service auth.
 //
 // Everything it serves is implemented under internal/, which was the shared
 // svpchain-agent-core library until that repo was retired. This binary is the
