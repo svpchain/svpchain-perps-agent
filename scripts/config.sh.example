@@ -20,6 +20,10 @@
 # SSH target. Needs docker and compose v2 usable without sudo.
 SVPCHAIN_DEPLOY_HOST="www@svpdev1.example.com"
 
+# Optional SSH jump host (ssh -J) when the deploy host is not reachable from
+# this machine directly. Comma-separate to chain several hops.
+#SVPCHAIN_DEPLOY_JUMP_BOX="ops@bastion.example.com"
+
 # The DEX chain, as reached from the deploy host itself — the container runs
 # with network_mode: host, so 127.0.0.1 here means the host's own loopback.
 SVPCHAIN_CHAIN_ID="svp-2517-1"

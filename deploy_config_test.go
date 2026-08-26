@@ -535,3 +535,45 @@ func TestDeployNeedsNoOwnerKey(t *testing.T) {
 		t.Errorf("keyless deploy did not reach preflight:\n%s", out)
 	}
 }
+
+// --jump-box has to reach every remote call, or a deploy through a bastion
+// fails on whichever step still dials the host directly — after the earlier
+// steps have already shipped files. --dry-run prints each remote command, so
+// the assertion is that all of them carry -J and none carry a bare ssh.
+func TestDeployJumpBoxReachesEveryRemoteCall(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	const bastion = "ops@bastion.example.com"
+	// No --skip-build: under --dry-run the build and save are only printed, so
+	// the run needs neither docker nor a local image and reaches every remote
+	// phase.
+	out, err := exec.Command("bash", script, "--no-config", "--dry-run",
+		"--host", "www@agent.example.com", "--jump-box", bastion).CombinedOutput()
+	if err != nil {
+		t.Fatalf("dry-run: %v\n%s", err, out)
+	}
+
+	var remote []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "[dry-run] ssh") || strings.Contains(line, "[dry-run] rsync") {
+			remote = append(remote, line)
+		}
+	}
+	if len(remote) == 0 {
+		t.Fatalf("dry-run printed no remote commands:\n%s", out)
+	}
+	for _, line := range remote {
+		if !strings.Contains(line, "-J "+bastion) {
+			t.Errorf("remote command bypasses the jump box: %s", line)
+		}
+	}
+	if !strings.Contains(string(out), "via jump-box="+bastion) {
+		t.Errorf("preflight does not report the jump box:\n%s", out)
+	}
+}

@@ -45,6 +45,15 @@ go run ./cmd/svpchain-perps-agent -config cmd/svpchain-perps-agent/agent.toml
   --public-url https://perps-agent.svpchain.org
 ```
 
+A host that is only reachable through a bastion takes `--jump-box` (or
+`SVPCHAIN_DEPLOY_JUMP_BOX`); every ssh and rsync in the run then goes through
+it as `ssh -J`, so nothing but the connection is forwarded and your keys stay
+on this machine. Comma-separate hops to chain them.
+
+```sh
+./scripts/deploy.sh --host www@10.0.1.7 --jump-box ops@bastion.example.com
+```
+
 ### Settings in a file instead of flags
 
 Rather than retyping the flags, put them in a sourced shell file:
