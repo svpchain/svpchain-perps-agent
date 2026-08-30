@@ -4,9 +4,23 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 )
+
+// ChainStatus is the node's view of the chain head, from CometBFT's /status:
+// the latest committed block and the time stamped in its header. It is what
+// get_height and get_time serve — read from the chain directly, so they
+// answer even when the indexer is down or lagging, and cannot disagree with
+// what the chain has actually committed.
+type ChainStatus struct {
+	LatestBlockHeight int64
+	LatestBlockTime   time.Time
+	// CatchingUp is the node's own admission that it is still syncing, in
+	// which case the height above is behind the network's.
+	CatchingUp bool
+}
 
 // TxStatus is the subset of CometBFT's ResultTx that the MCP server exposes
 // to clients through get_tx_status. Height == 0 means "not yet included".
@@ -22,6 +36,7 @@ type TxStatus struct {
 // agent polls get_tx_status to confirm inclusion).
 type CometBftClient interface {
 	TxStatus(ctx context.Context, txHash string) (TxStatus, error)
+	Status(ctx context.Context) (ChainStatus, error)
 }
 
 type cometBftClient struct {
@@ -55,5 +70,18 @@ func (c *cometBftClient) TxStatus(ctx context.Context, txHash string) (TxStatus,
 		Height: resp.Height,
 		Code:   resp.TxResult.Code,
 		RawLog: resp.TxResult.Log,
+	}, nil
+}
+
+// Status reads the chain head via CometBFT's /status endpoint.
+func (c *cometBftClient) Status(ctx context.Context) (ChainStatus, error) {
+	resp, err := c.inner.Status(ctx)
+	if err != nil {
+		return ChainStatus{}, fmt.Errorf("cometbft Status: %w", err)
+	}
+	return ChainStatus{
+		LatestBlockHeight: resp.SyncInfo.LatestBlockHeight,
+		LatestBlockTime:   resp.SyncInfo.LatestBlockTime,
+		CatchingUp:        resp.SyncInfo.CatchingUp,
 	}, nil
 }

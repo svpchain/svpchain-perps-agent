@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"strconv"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -110,6 +112,14 @@ func (h *Handlers) GetHistoricalFunding(
 }
 
 // -- get_height --------------------------------------------------------
+//
+// get_height and get_time read the chain head from CometBFT RPC (/status)
+// rather than the indexer's /v4/height and /v4/time. The chain is the
+// authority on what it has committed; the indexer is a lagging view of it
+// whose wire shape has also drifted between builds. The output shapes are
+// kept — HeightResponse and TimeResponse — so callers see no change beyond
+// the source. get_time reports the latest block's header time, which is
+// the clock on-chain order expiry (good_til_block_time) is judged against.
 
 type GetHeightInput struct{}
 type GetHeightOutput struct {
@@ -122,11 +132,14 @@ func (h *Handlers) GetHeight(
 	if _, err := h.authorize(ctx, "get_height"); err != nil {
 		return nil, GetHeightOutput{}, err
 	}
-	resp, err := h.Deps.Indexer.GetHeight(ctx)
+	st, err := h.Deps.Chain.CometBft.Status(ctx)
 	if err != nil {
 		return nil, GetHeightOutput{}, err
 	}
-	return nil, GetHeightOutput{Height: *resp}, nil
+	return nil, GetHeightOutput{Height: indexer.HeightResponse{
+		Height: strconv.FormatInt(st.LatestBlockHeight, 10),
+		Time:   st.LatestBlockTime.UTC().Format(time.RFC3339Nano),
+	}}, nil
 }
 
 // -- get_time ----------------------------------------------------------
@@ -142,9 +155,13 @@ func (h *Handlers) GetTime(
 	if _, err := h.authorize(ctx, "get_time"); err != nil {
 		return nil, GetTimeOutput{}, err
 	}
-	resp, err := h.Deps.Indexer.GetTime(ctx)
+	st, err := h.Deps.Chain.CometBft.Status(ctx)
 	if err != nil {
 		return nil, GetTimeOutput{}, err
 	}
-	return nil, GetTimeOutput{Time: *resp}, nil
+	t := st.LatestBlockTime.UTC()
+	return nil, GetTimeOutput{Time: indexer.TimeResponse{
+		ISO:   t.Format(time.RFC3339Nano),
+		Epoch: float64(t.UnixMilli()) / 1000,
+	}}, nil
 }
