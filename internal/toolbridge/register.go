@@ -14,6 +14,10 @@ const (
 	SkillFunds      = "svpchain-funds"
 	SkillBroadcast  = "svpchain-broadcast"
 	SkillAuth       = "svpchain-auth"
+
+	// SkillMeta is this agent describing itself — see meta.go. It is not an
+	// operation family; it needs no credential and no backing service.
+	SkillMeta = "svpchain-meta"
 )
 
 // NewEmpty returns a registry with nothing registered. A per-category binary
@@ -93,5 +97,6 @@ func New(h *tools.Handlers) *Registry {
 	r.RegisterFunds(h)
 	r.RegisterBroadcast(h)
 	r.RegisterAuth(h)
+	r.RegisterMeta()
 	return r
 }

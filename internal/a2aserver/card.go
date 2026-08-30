@@ -89,6 +89,19 @@ var skillMetas = []skillMeta{
 			`{"skill":"svpchain-auth","tool":"auth_verify","args":{"nonce":"…","signature":"…"}}`,
 		},
 	},
+	{
+		id:   toolbridge.SkillMeta,
+		name: "SVP-Chain Agent Self-Description",
+		desc: "Discovery: list_tools returns every tool this agent serves, with the skill " +
+			"it belongs to and the JSON Schema of its arguments — the A2A equivalent of " +
+			"MCP's tools/list, which the A2A protocol itself does not provide. Needs no " +
+			"credential.",
+		tags: []string{"discovery", "schema", "read-only"},
+		examples: []string{
+			`{"skill":"svpchain-meta","tool":"list_tools"}`,
+			`{"skill":"svpchain-meta","tool":"list_tools","args":{"skill":"svpchain-account"}}`,
+		},
+	},
 }
 
 // CardIdentity is the per-binary half of the Agent Card: who this agent says

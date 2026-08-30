@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -26,6 +27,32 @@ type Op struct {
 	Skill string
 	Tool  string
 	Call  func(ctx context.Context, args json.RawMessage) (any, error)
+
+	// InputSchema describes the args object, reflected from the same In type
+	// the MCP server's mcp.AddTool reflects over — including the jsonschema
+	// struct tags, so the per-field prose comes across too. Nil for an
+	// operation registered without a typed input; callers should read that
+	// as "an object, contents unspecified".
+	InputSchema *jsonschema.Schema
+}
+
+// Bound is what an adapt helper produces: a call plus the schema of the
+// arguments it decodes. Returning both together is what lets add() record a
+// schema without every registration site restating the handler's input type.
+type Bound struct {
+	Call        func(ctx context.Context, args json.RawMessage) (any, error)
+	InputSchema *jsonschema.Schema
+}
+
+// schemaFor reflects In the way mcp.AddTool does. A type that will not reflect
+// yields nil rather than a panic: an unusable schema must not stop the agent
+// from serving the tool.
+func schemaFor[In any]() *jsonschema.Schema {
+	s, err := jsonschema.For[In](nil)
+	if err != nil {
+		return nil
+	}
+	return s
 }
 
 // handler is the uniform tool handler shape every internal/mcp/tools method has.
@@ -34,8 +61,8 @@ type handler[In, Out any] func(context.Context, *mcp.CallToolRequest, In) (*mcp.
 // adapt wraps an MCP tool handler into an Op call. The nil CallToolRequest is
 // safe: every handler ignores it (verified across the tool package — identity
 // comes from ctx via tools.WithTenant / WithIP / WithSessionID).
-func adapt[In, Out any](h handler[In, Out]) func(context.Context, json.RawMessage) (any, error) {
-	return func(ctx context.Context, raw json.RawMessage) (any, error) {
+func adapt[In, Out any](h handler[In, Out]) Bound {
+	return Bound{InputSchema: schemaFor[In](), Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var in In
 		if len(raw) > 0 {
 			if err := json.Unmarshal(raw, &in); err != nil {
@@ -53,7 +80,7 @@ func adapt[In, Out any](h handler[In, Out]) func(context.Context, json.RawMessag
 			return nil, errors.New(resultText(res))
 		}
 		return out, nil
-	}
+	}}
 }
 
 func resultText(res *mcp.CallToolResult) string {
@@ -73,11 +100,22 @@ type Registry struct {
 
 func newRegistry() *Registry { return &Registry{ops: map[string]Op{}} }
 
-func (r *Registry) add(skill, tool string, call func(context.Context, json.RawMessage) (any, error)) {
+func (r *Registry) add(skill, tool string, b Bound) {
 	if _, dup := r.ops[tool]; dup {
 		panic(fmt.Sprintf("toolbridge: duplicate tool %q", tool))
 	}
-	r.ops[tool] = Op{Skill: skill, Tool: tool, Call: call}
+	r.ops[tool] = Op{Skill: skill, Tool: tool, Call: b.Call, InputSchema: b.InputSchema}
+}
+
+// List returns every registered operation, sorted by tool name. The listing
+// surface (list_tools) and the completeness tests read this.
+func (r *Registry) List() []Op {
+	out := make([]Op, 0, len(r.ops))
+	for _, op := range r.ops {
+		out = append(out, op)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Tool < out[j].Tool })
+	return out
 }
 
 // Lookup returns the operation registered under tool.

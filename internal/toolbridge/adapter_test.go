@@ -22,7 +22,7 @@ func TestAdaptDecodesArgsAndReturnsOutput(t *testing.T) {
 			t.Fatal("adapter must pass a nil CallToolRequest")
 		}
 		return nil, echoOut{Echoed: in.Value}, nil
-	})
+	}).Call
 
 	out, err := call(context.Background(), json.RawMessage(`{"value":"hi"}`))
 	if err != nil {
@@ -36,7 +36,7 @@ func TestAdaptDecodesArgsAndReturnsOutput(t *testing.T) {
 func TestAdaptEmptyArgsYieldZeroInput(t *testing.T) {
 	call := adapt(func(_ context.Context, _ *mcp.CallToolRequest, in echoIn) (*mcp.CallToolResult, echoOut, error) {
 		return nil, echoOut{Echoed: in.Value}, nil
-	})
+	}).Call
 	out, err := call(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestAdaptReportsDecodeAndHandlerErrors(t *testing.T) {
 	boom := errors.New("handler refused")
 	call := adapt(func(_ context.Context, _ *mcp.CallToolRequest, _ echoIn) (*mcp.CallToolResult, echoOut, error) {
 		return nil, echoOut{}, boom
-	})
+	}).Call
 
 	if _, err := call(context.Background(), json.RawMessage(`{nonsense`)); err == nil {
 		t.Error("malformed args must fail to decode")
@@ -68,7 +68,7 @@ func TestAdaptTreatsIsErrorResultAsError(t *testing.T) {
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "soft refusal"}},
 		}, echoOut{}, nil
-	})
+	}).Call
 	_, err := call(context.Background(), nil)
 	if err == nil || err.Error() != "soft refusal" {
 		t.Errorf("IsError result must surface as the error text, got %v", err)
@@ -77,7 +77,7 @@ func TestAdaptTreatsIsErrorResultAsError(t *testing.T) {
 
 func TestRegistryRejectsDuplicatesAndUnknownLookups(t *testing.T) {
 	r := newRegistry()
-	r.add("skill-a", "tool-1", func(context.Context, json.RawMessage) (any, error) { return nil, nil })
+	r.add("skill-a", "tool-1", Bound{Call: func(context.Context, json.RawMessage) (any, error) { return nil, nil }})
 
 	if _, ok := r.Lookup("tool-1"); !ok {
 		t.Error("registered tool must resolve")
@@ -91,5 +91,5 @@ func TestRegistryRejectsDuplicatesAndUnknownLookups(t *testing.T) {
 			t.Error("duplicate registration must panic — it is a programming error")
 		}
 	}()
-	r.add("skill-b", "tool-1", func(context.Context, json.RawMessage) (any, error) { return nil, nil })
+	r.add("skill-b", "tool-1", Bound{Call: func(context.Context, json.RawMessage) (any, error) { return nil, nil }})
 }

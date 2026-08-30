@@ -26,7 +26,8 @@ type Profile struct {
 }
 
 // PerpsProfile serves the perpetuals DEX: market data, accounts, order and
-// funds building, the Cosmos broadcast rail, and self-service auth.
+// funds building, the Cosmos broadcast rail, self-service auth, and the
+// self-description surface an A2A caller discovers the rest through.
 var PerpsProfile = Profile{
 	Name: "perps",
 	Register: func(r *toolbridge.Registry, h *tools.Handlers) {
@@ -36,5 +37,6 @@ var PerpsProfile = Profile{
 		r.RegisterFunds(h)
 		r.RegisterBroadcast(h)
 		r.RegisterAuth(h)
+		r.RegisterMeta()
 	},
 }
