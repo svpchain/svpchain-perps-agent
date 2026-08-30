@@ -114,6 +114,19 @@
 #                                  THIS machine. --grpc-addr is the container's
 #                                  view and usually is not.
 #                                  SVPCHAIN_REGISTER_GRPC
+#   --agent-chain-rest <url>       --register only. Reach the chain carrying
+#                                  x/agent over its Cosmos REST API instead
+#                                  (the gRPC-gateway, typically :1317), from
+#                                  THIS machine. Set, it replaces the gRPC
+#                                  route above entirely. A node's REST port is
+#                                  far more often exposed than its gRPC port,
+#                                  which is why this exists.
+#                                  SVPCHAIN_AGENT_CHAIN_REST
+#   --agent-chain-id <id>          --register only. The id of THAT chain, when
+#                                  x/agent lives on a chain other than the DEX
+#                                  chain. Defaults to --chain-id. Needs
+#                                  --agent-chain-rest.
+#                                  SVPCHAIN_AGENT_CHAIN_ID
 #   --bond <coin>                  --register only. Initial bond, e.g.
 #                                  5000000000000000000000asvp. Default: the
 #                                  module's MinBond.
@@ -203,7 +216,8 @@ unset _i _j
 readonly CONFIG_VARS=(
   SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR SVPCHAIN_COMET_RPC
   SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OWNER_KEY
-  SVPCHAIN_REGISTER_GRPC SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
+  SVPCHAIN_REGISTER_GRPC SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
+  SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
   SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
   SVPCHAIN_INSTALL_DIR
   SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
@@ -304,6 +318,12 @@ register_bond=""
 # an ssh tunnel. Defaults to $grpc_addr, which is right for a local dev chain
 # and wrong for most else.
 register_grpc="${SVPCHAIN_REGISTER_GRPC:-}"
+# --register only. The chain carrying x/agent over its Cosmos REST API, again
+# as reachable from THIS machine. Set, it is the route: $register_grpc is not
+# consulted. $agent_chain_id names that chain when it is not the DEX chain;
+# empty means it is, and --chain-id signs.
+agent_chain_id="${SVPCHAIN_AGENT_CHAIN_ID:-}"
+agent_chain_rest="${SVPCHAIN_AGENT_CHAIN_REST:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -335,6 +355,8 @@ while [[ $# -gt 0 ]]; do
     --register)               mode="register";        shift ;;
     --bond)                   register_bond="$2";     shift 2 ;;
     --register-grpc)          register_grpc="$2"; mark_flag SVPCHAIN_REGISTER_GRPC; shift 2 ;;
+    --agent-chain-id)         agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
+    --agent-chain-rest)       agent_chain_rest="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_REST; shift 2 ;;
     --print-env)              mode="print-env";       shift ;;
     --skip-build)             skip_build="1";         shift ;;
     --print-config)           mode="print-config";    shift ;;
@@ -748,15 +770,30 @@ if [[ "$mode" == "register" ]]; then
   resolve_owner_key
   [[ -n "$owner_key" ]] \
     || fail "no owner key configured — registration is the owner proving it holds the key this agent is registered under (see --gen-owner-key)"
-  [[ -n "$chain_id" ]] || fail "--chain-id is required to register: it names the chain carrying x/agent"
-  # Falls back to the container's endpoint, which is right only when the chain
-  # is reachable at the same address from here — a local dev node, typically.
-  register_grpc="${register_grpc:-$grpc_addr}"
-  [[ -n "$register_grpc" ]] \
-    || fail "no gRPC endpoint to register through — set --register-grpc (--grpc-addr is the container's view of the chain, not necessarily reachable from here)"
+  # Which chain signs, and how it is reached. Over REST when --agent-chain-rest
+  # is set — its own chain id if x/agent lives elsewhere, the DEX chain's if
+  # not — else over gRPC. The gRPC route falls back to the container's
+  # endpoint, which is right only when the chain is reachable at the same
+  # address from here: a local dev node, typically.
+  chain_args=()
+  if [[ -n "$agent_chain_rest" ]]; then
+    register_chain_id="${agent_chain_id:-$chain_id}"
+    chain_args=(-rest "$agent_chain_rest")
+    route="REST ${agent_chain_rest}"
+  else
+    [[ -z "$agent_chain_id" ]] \
+      || fail "--agent-chain-id names a chain this run has no way to reach — set --agent-chain-rest for it too"
+    register_chain_id="$chain_id"
+    register_grpc="${register_grpc:-$grpc_addr}"
+    [[ -n "$register_grpc" ]] \
+      || fail "no chain endpoint to register through — set --agent-chain-rest or --register-grpc (--grpc-addr is the container's view of the chain, not necessarily reachable from here)"
+    chain_args=(-grpc "$register_grpc")
+    route="gRPC ${register_grpc}"
+  fi
+  [[ -n "$register_chain_id" ]] || fail "--chain-id is required to register: it names the chain carrying x/agent"
 
   repo_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
-  step "Registering ${AGENT_NAME} at ${public_url}"
+  step "Registering ${AGENT_NAME} at ${public_url} on ${register_chain_id} via ${route}"
   # A subshell so the export and the cd die with it. GOWORK=off matches the
   # Makefile: a go.work in the parent directory would resolve this module from
   # sibling checkouts rather than the versions go.mod pins.
@@ -765,8 +802,8 @@ if [[ "$mode" == "register" ]]; then
     export SVPCHAIN_PERPS_AGENT_OWNER_KEY="$owner_key"
     args=(
       -url "$public_url"
-      -chain-id "$chain_id"
-      -grpc "$register_grpc"
+      -chain-id "$register_chain_id"
+      "${chain_args[@]}"
       -capabilities "$operator_capabilities"
       -price-amount "$price_amount"
       -price-unit "$price_unit"
@@ -796,6 +833,7 @@ if [[ "$mode" == "print-env" ]]; then
     SVPCHAIN_CONFIG_DIR SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
     SVPCHAIN_COMET_RPC SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL
     SVPCHAIN_PERPS_AGENT_OWNER_KEY SVPCHAIN_REGISTER_GRPC
+    SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
     SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
     SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
     SVPCHAIN_MARKETS_REFRESH
@@ -807,6 +845,7 @@ if [[ "$mode" == "print-env" ]]; then
     "$config_dir" "$host" "$jump_box" "$chain_id" "$grpc_addr"
     "$comet_rpc" "$indexer" "$public_url"
     "$owner_key" "$register_grpc"
+    "$agent_chain_id" "$agent_chain_rest"
     "$operator_capabilities" "$operator_metadata"
     "$price_amount" "$price_unit"
     "$markets_refresh"

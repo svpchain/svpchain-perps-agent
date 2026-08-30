@@ -32,16 +32,24 @@ import (
 
 // Client bundles the three chain surfaces a registration needs: the x/agent
 // registry to read current state, x/auth for the signer's account number and
-// sequence, and the tx service to broadcast.
+// sequence, and the tx service to broadcast. Dial reaches them over gRPC,
+// DialREST over the chain's REST API; everything above this line is the same.
 type Client struct {
-	conn      *grpc.ClientConn
-	agents    agenttypes.QueryClient
+	close     func() error
+	agents    agentQuerier
 	accounts  chain.AccountClient
 	broadcast chain.BroadcastClient
 }
 
-// Dial connects to the chain carrying x/agent. In a single-chain deployment
-// that is the same gRPC endpoint the agent serves its own queries from.
+// agentQuerier is the slice of agenttypes.QueryClient a registration reads.
+// Both transports satisfy it; the gRPC one is the generated client itself.
+type agentQuerier interface {
+	Agent(ctx context.Context, in *agenttypes.QueryAgent, opts ...grpc.CallOption) (*agenttypes.QueryAgentResponse, error)
+	Params(ctx context.Context, in *agenttypes.QueryParams, opts ...grpc.CallOption) (*agenttypes.QueryParamsResponse, error)
+}
+
+// Dial connects to the chain carrying x/agent over gRPC. In a single-chain
+// deployment that is the same endpoint the agent serves its own queries from.
 func Dial(ctx context.Context, grpcAddr string) (*Client, error) {
 	conn, err := chain.Dial(ctx, grpcAddr)
 	if err != nil {
@@ -51,14 +59,14 @@ func Dial(ctx context.Context, grpcAddr string) (*Client, error) {
 	// one that already knows every svpchain module type plus eth_secp256k1.
 	enc := mcpcodec.GetEncodingConfig()
 	return &Client{
-		conn:      conn,
+		close:     conn.Close,
 		agents:    agenttypes.NewQueryClient(conn),
 		accounts:  chain.NewAccountClient(conn, enc.InterfaceRegistry),
 		broadcast: chain.NewBroadcastClient(conn),
 	}, nil
 }
 
-func (c *Client) Close() error { return c.conn.Close() }
+func (c *Client) Close() error { return c.close() }
 
 // Params returns the module's registration fee and minimum bond. The bond
 // matters at registration time: MsgRegisterAgent carries an explicit
@@ -101,14 +109,22 @@ func (c *Client) BroadcastSync(ctx context.Context, txBytes []byte) (chain.Broad
 	if err := chain.ParseBroadcastError(res); err != nil {
 		return res, err
 	}
+	// ParseBroadcastError only types the rejections it recognises and returns
+	// nil for the rest, so a non-zero code still has to fail here — otherwise
+	// an out-of-gas or a module error prints as "submitted" and the record
+	// never changes.
+	if res.Code != 0 {
+		return res, fmt.Errorf("rejected by CheckTx (code %d): %s", res.Code, res.RawLog)
+	}
 	return res, nil
 }
 
-// isNotFound recognises the gRPC status the registry returns for an unknown
-// agent id. Matched on the code rather than the message: NotFound is the one
-// outcome that means "nothing registered under this id yet", and treating a
-// transport failure as that would silently re-register an agent that already
-// exists.
+// isNotFound recognises the status the registry returns for an unknown agent
+// id — a gRPC status either way, since the REST client re-raises the gateway's
+// {"code":5,...} body as one. Matched on the code rather than the message:
+// NotFound is the one outcome that means "nothing registered under this id
+// yet", and treating a transport failure as that would silently re-register
+// an agent that already exists.
 func isNotFound(err error) bool {
 	return status.Code(err) == codes.NotFound
 }

@@ -61,6 +61,17 @@ SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
 # on a normal deployment is meaningful only on the remote host.
 #SVPCHAIN_REGISTER_GRPC="grpc.testnet.svpchain.org:443"
 
+# Or reach the chain carrying x/agent over its Cosmos REST API instead (the
+# gRPC-gateway, typically :1317), again from THIS machine. Set, this is the
+# route and SVPCHAIN_REGISTER_GRPC is not consulted. A node's REST port is far
+# more often reachable than its gRPC port. When the deploy host is the only
+# thing that can see the node, tunnel it first and point this at the local
+# end:  ssh -N -L 1317:127.0.0.1:1317 <deploy host>
+#SVPCHAIN_AGENT_CHAIN_REST="http://127.0.0.1:1317"
+# The id of that chain, only when x/agent lives on a chain other than the DEX
+# chain above; unset, SVPCHAIN_CHAIN_ID signs. Needs SVPCHAIN_AGENT_CHAIN_REST.
+#SVPCHAIN_AGENT_CHAIN_ID="svpagent-testnet-1"
+
 # Capability tags the registration is indexed by, and free-form metadata.
 SVPCHAIN_OPERATOR_CAPABILITIES="perps.trading,perps.market-data"
 SVPCHAIN_OPERATOR_METADATA="svpchain perps agent"

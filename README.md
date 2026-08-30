@@ -177,11 +177,27 @@ Both drifts are otherwise silent. A stale capability hash makes verifiers read
 the agent as unverified while every process is healthy; a stale endpoint points
 them at a URL that may no longer answer.
 
-The transaction is broadcast from **your** machine, so it needs a gRPC
-endpoint reachable from there: `--register-grpc` / `SVPCHAIN_REGISTER_GRPC`.
-`--grpc-addr` is the container's view of the chain — typically a loopback
-address on the remote host — and is only the right default for a local dev
-node. `--dry-run` prints what would be submitted without broadcasting.
+The transaction is broadcast from **your** machine, so it needs a chain
+endpoint reachable from there — one of:
+
+- `--agent-chain-rest` / `SVPCHAIN_AGENT_CHAIN_REST`: the chain's Cosmos REST
+  API (the gRPC-gateway, typically `:1317`). A node's REST port is far more
+  often exposed than its gRPC port, so this is usually the one that works.
+  When x/agent lives on a chain other than the DEX chain, `--agent-chain-id` /
+  `SVPCHAIN_AGENT_CHAIN_ID` names it; unset, `--chain-id` signs.
+- `--register-grpc` / `SVPCHAIN_REGISTER_GRPC`: its gRPC port. `--grpc-addr`
+  is the container's view of the chain — typically a loopback address on the
+  remote host — and is only the right default for a local dev node.
+
+Set, the REST route wins. When only the deploy host can see the node, tunnel
+its REST port first and point the setting at the local end:
+
+```sh
+ssh -N -L 1317:127.0.0.1:1317 www@svpdev1.example.com   # -J bastion if there is one
+SVPCHAIN_AGENT_CHAIN_REST=http://127.0.0.1:1317 ./scripts/deploy.sh --register
+```
+
+`--dry-run` prints what would be submitted without broadcasting.
 
 `cmd/agent-register` is the client underneath. Run it directly to reach the
 agent some other way — over an ssh tunnel before DNS is live, say:
@@ -191,6 +207,12 @@ SVPCHAIN_PERPS_AGENT_OWNER_KEY=… go run ./cmd/agent-register \
   -url http://127.0.0.1:8082 -chain-id svp-2517-1 -grpc 127.0.0.1:9090 \
   -capabilities perps.trading,perps.market-data -price-amount 1000000
 ```
+
+`-rest http://127.0.0.1:1317` in place of `-grpc` takes the REST route; exactly
+one of the two is required. `-agent-chain-rest` / `-agent-chain-id` are
+accepted as aliases (the deploy script's flag names), and `-rest` / `-chain-id` default to
+`SVPCHAIN_AGENT_CHAIN_REST` and `SVPCHAIN_AGENT_CHAIN_ID` from the environment
+— the same names `config.sh` sets — so sourcing the config file is enough.
 
 `-price-amount` is the fee advertised on chain per `-price-unit` (default
 `call`), in the settlement token's smallest unit; the chain refuses a

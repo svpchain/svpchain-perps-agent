@@ -27,12 +27,28 @@
 // The owner key comes from SVPCHAIN_PERPS_AGENT_OWNER_KEY or -key-file, never
 // from a flag: a key in argv is visible in `ps` and lands in shell history.
 //
+// The chain is reached over gRPC (-grpc) or over its Cosmos REST API (-rest,
+// the gRPC-gateway, typically :1317) — exactly one. -rest and -chain-id also
+// answer to -agent-chain-rest and -agent-chain-id, the flags scripts/deploy.sh
+// takes, and default to SVPCHAIN_AGENT_CHAIN_REST and SVPCHAIN_AGENT_CHAIN_ID,
+// the names its config file sets — so a sourced config file is enough:
+//
+//	. ~/.config/svpchain-perps-agent/config.sh && go run ./cmd/agent-register -url …
+//
+// Both do the same three
+// things: read the current registration, read the signer's account, and
+// broadcast. REST is there because the transaction is signed HERE, and a
+// node's REST port is far more often reachable from an operator's machine
+// than its gRPC port is.
+//
 // scripts/deploy.sh --register is the intended caller and passes the resolved
 // endpoints. Running it by hand is useful when the agent has to be reached
 // some other way — over an ssh tunnel before DNS is live, say:
 //
 //	SVPCHAIN_PERPS_AGENT_OWNER_KEY=… go run ./cmd/agent-register \
 //	  -url http://127.0.0.1:8082 -chain-id svpchain-testnet-1 -grpc 127.0.0.1:9090
+//	SVPCHAIN_PERPS_AGENT_OWNER_KEY=… go run ./cmd/agent-register \
+//	  -url http://127.0.0.1:8082 -chain-id svpchain-testnet-1 -rest http://127.0.0.1:1317
 package main
 
 import (
@@ -57,6 +73,13 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/owner"
 )
 
+// Environment defaults for the chain flags — the names scripts/deploy.sh and
+// its config file use, so the two agree without the script relaying them.
+const (
+	RestEnvVar    = "SVPCHAIN_AGENT_CHAIN_REST"
+	ChainIDEnvVar = "SVPCHAIN_AGENT_CHAIN_ID"
+)
+
 // cardPath is the A2A well-known location; a2asrv serves the card there.
 const cardPath = "/.well-known/agent-card.json"
 
@@ -64,6 +87,7 @@ type opts struct {
 	url          string
 	chainID      string
 	grpcAddr     string
+	restURL      string
 	keyFile      string
 	bond         string
 	capabilities string
@@ -80,8 +104,11 @@ type opts struct {
 func main() {
 	var o opts
 	flag.StringVar(&o.url, "url", "", "base URL of the running agent; registered as its endpoint and where the card is fetched")
-	flag.StringVar(&o.chainID, "chain-id", "", "chain id of the chain carrying x/agent")
-	flag.StringVar(&o.grpcAddr, "grpc", "", "gRPC address of that chain")
+	flag.StringVar(&o.chainID, "chain-id", os.Getenv(ChainIDEnvVar), "chain id of the chain carrying x/agent (default $"+ChainIDEnvVar+")")
+	flag.StringVar(&o.chainID, "agent-chain-id", os.Getenv(ChainIDEnvVar), "alias of -chain-id, the name scripts/deploy.sh uses")
+	flag.StringVar(&o.grpcAddr, "grpc", "", "gRPC address of that chain (host:port); exactly one of -grpc and -rest")
+	flag.StringVar(&o.restURL, "rest", os.Getenv(RestEnvVar), "Cosmos REST base URL of that chain (scheme://host:port, the gRPC-gateway, typically :1317); exactly one of -grpc and -rest (default $"+RestEnvVar+")")
+	flag.StringVar(&o.restURL, "agent-chain-rest", os.Getenv(RestEnvVar), "alias of -rest, the name scripts/deploy.sh uses")
 	flag.StringVar(&o.keyFile, "key-file", "", "owner key file, when "+owner.KeyEnvVar+" is not set")
 	flag.StringVar(&o.bond, "bond", "", "initial bond as a coin, e.g. 5000000000000000000000asvp; empty takes the module's MinBond")
 	flag.StringVar(&o.capabilities, "capabilities", "", "comma-separated capability tags for discovery; at least one is required")
@@ -109,8 +136,11 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 	if baseURL == "" {
 		return fmt.Errorf("-url is required: the agent has to be running and reachable to register itself")
 	}
-	if o.chainID == "" || o.grpcAddr == "" {
-		return fmt.Errorf("-chain-id and -grpc are required: they name the chain carrying x/agent")
+	if o.chainID == "" {
+		return fmt.Errorf("-chain-id is required: it names the chain carrying x/agent, and the signature commits to it")
+	}
+	if (o.grpcAddr == "") == (o.restURL == "") {
+		return fmt.Errorf("exactly one of -grpc and -rest (or $%s) is required: how to reach the chain carrying x/agent", RestEnvVar)
 	}
 	tags := splitTags(o.capabilities)
 	if len(tags) == 0 {
@@ -156,7 +186,7 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 		}
 	}
 
-	client, err := agentchain.Dial(ctx, o.grpcAddr)
+	client, err := dial(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -241,6 +271,15 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 	}
 	fmt.Fprintf(w, "%s submitted — tx %s\n", action, res.TxHash)
 	return nil
+}
+
+// dial picks the transport the flags named. Everything after this point is
+// transport-blind: the same reads, the same signature, the same broadcast.
+func dial(ctx context.Context, o opts) (*agentchain.Client, error) {
+	if o.restURL != "" {
+		return agentchain.DialREST(o.restURL)
+	}
+	return agentchain.Dial(ctx, o.grpcAddr)
 }
 
 // resolveBond takes the operator's coin, or asks the module for its minimum.
