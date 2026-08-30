@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/evm/crypto/ethsecp256k1"
 
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 )
@@ -20,39 +19,36 @@ type Desired struct {
 	CapabilityHash []byte
 	Capabilities   []string
 	Metadata       string
+	// Pricing is what the agent advertises per unit of work. Required on a
+	// first registration; nil on an update leaves the registered value alone.
+	Pricing *agenttypes.Pricing
 }
 
 // AgentID returns the DID this owner key registers under.
 //
-// There is no choice involved: the id embeds the operator address, and this
-// agent registers the owner key as its own operator (see internal/owner), so
-// the id follows from the key. A verifier off this chain derives the signing
-// key's address straight back out of the DID, which is what makes it
+// There is no choice involved: the id embeds the owner address, so the id
+// follows from the key (see internal/owner). A verifier off this chain derives
+// the owner's address straight back out of the DID, which is what makes it
 // verifiable with nothing but the library.
 func AgentID(ownerAddr sdk.AccAddress) string {
-	return agenttypes.AgentIdFromOperator(ownerAddr)
+	return agenttypes.AgentIdFromOwner(ownerAddr)
 }
 
-// BuildRegister assembles the first registration. Owner and Operator are the
-// same account by design — the agent signs nothing, so there is no separate
-// operator identity to hold — and PublicKey is that account's own compressed
-// secp256k1 key, which is what MsgRegisterAgent's PublicKeyMatchesOperator
-// check requires.
+// BuildRegister assembles the first registration. The owner account is the
+// agent's whole identity: the chain no longer carries a separate operator or
+// public key, so nothing beyond the owner address goes into the message.
 func BuildRegister(
-	priv *ethsecp256k1.PrivKey,
 	ownerAddr sdk.AccAddress,
 	want Desired,
 	bond sdk.Coin,
 ) *agenttypes.MsgRegisterAgent {
-	addr := ownerAddr.String()
 	return &agenttypes.MsgRegisterAgent{
-		Owner:          addr,
+		Owner:          ownerAddr.String(),
 		AgentId:        AgentID(ownerAddr),
-		Operator:       addr,
-		PublicKey:      priv.PubKey().Bytes(),
 		Endpoint:       want.Endpoint,
 		CapabilityHash: want.CapabilityHash,
 		Capabilities:   want.Capabilities,
+		Pricing:        want.Pricing,
 		InitialBond:    bond,
 		Metadata:       want.Metadata,
 	}
@@ -65,14 +61,16 @@ func BuildRegister(
 // MsgUpdateAgent replaces every mutable field with the value sent — an omitted
 // field is cleared, not left alone — so an update built from the deploy's
 // knowledge alone would silently wipe pricing that was set some other way.
-// Metadata is treated the same: only overridden when the caller supplied one.
-//
-// PublicKey is left empty deliberately. The chain refuses an update that
-// carries one, because the key is the identity and cannot be rotated.
+// Metadata and Pricing are treated the same: only overridden when the caller
+// supplied one.
 func BuildUpdate(existing *agenttypes.Agent, want Desired) *agenttypes.MsgUpdateAgent {
 	metadata := existing.Metadata
 	if want.Metadata != "" {
 		metadata = want.Metadata
+	}
+	pricing := existing.Pricing
+	if want.Pricing != nil {
+		pricing = want.Pricing
 	}
 	return &agenttypes.MsgUpdateAgent{
 		Owner:          existing.Owner,
@@ -80,7 +78,7 @@ func BuildUpdate(existing *agenttypes.Agent, want Desired) *agenttypes.MsgUpdate
 		Endpoint:       want.Endpoint,
 		CapabilityHash: want.CapabilityHash,
 		Capabilities:   want.Capabilities,
-		Pricing:        existing.Pricing,
+		Pricing:        pricing,
 		Metadata:       metadata,
 	}
 }
@@ -114,7 +112,26 @@ func Drift(existing *agenttypes.Agent, want Desired) []string {
 	if want.Metadata != "" && existing.Metadata != want.Metadata {
 		reasons = append(reasons, "metadata changed")
 	}
+	if want.Pricing != nil && !samePricing(existing.Pricing, want.Pricing) {
+		reasons = append(reasons, fmt.Sprintf(
+			"pricing changed: registered %s, configured %s",
+			describePricing(existing.Pricing), describePricing(want.Pricing)))
+	}
 	return reasons
+}
+
+func samePricing(a, b *agenttypes.Pricing) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Amount == b.Amount && a.Unit == b.Unit
+}
+
+func describePricing(p *agenttypes.Pricing) string {
+	if p == nil {
+		return "none"
+	}
+	return p.Amount + "/" + p.Unit
 }
 
 func sameSet(a, b []string) bool {

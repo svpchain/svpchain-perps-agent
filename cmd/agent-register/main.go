@@ -50,6 +50,8 @@ import (
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
+
 	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
 	"github.com/svpchain/svpchain-perps-agent/internal/owner"
@@ -66,6 +68,8 @@ type opts struct {
 	bond         string
 	capabilities string
 	metadata     string
+	priceAmount  string
+	priceUnit    string
 	feeDenom     string
 	feeAmount    string
 	gasLimit     uint64
@@ -82,6 +86,8 @@ func main() {
 	flag.StringVar(&o.bond, "bond", "", "initial bond as a coin, e.g. 5000000000000000000000asvp; empty takes the module's MinBond")
 	flag.StringVar(&o.capabilities, "capabilities", "", "comma-separated capability tags for discovery; at least one is required")
 	flag.StringVar(&o.metadata, "metadata", "", "opaque owner metadata; empty leaves an existing value alone")
+	flag.StringVar(&o.priceAmount, "price-amount", "", "fee per -price-unit as a positive integer in the settlement token's smallest unit; required to register, empty on an update leaves the registered pricing alone")
+	flag.StringVar(&o.priceUnit, "price-unit", "call", "unit the price is quoted against")
 	flag.StringVar(&o.feeDenom, "fee-denom", config.DefaultFeeDenom, "fee denom")
 	flag.StringVar(&o.feeAmount, "fee-amount", config.DefaultFeeAmount, "fee amount")
 	flag.Uint64Var(&o.gasLimit, "gas-limit", config.DefaultFeeGasLimit, "gas limit")
@@ -143,6 +149,12 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 		Capabilities:   tags,
 		Metadata:       o.metadata,
 	}
+	if o.priceAmount != "" {
+		want.Pricing = &agenttypes.Pricing{Amount: o.priceAmount, Unit: o.priceUnit}
+		if err := agenttypes.ValidatePricing(want.Pricing); err != nil {
+			return fmt.Errorf("-price-amount/-price-unit: %w", err)
+		}
+	}
 
 	client, err := agentchain.Dial(ctx, o.grpcAddr)
 	if err != nil {
@@ -161,11 +173,14 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 	var bond sdk.Coin
 	switch {
 	case !found:
+		if want.Pricing == nil {
+			return fmt.Errorf("-price-amount is required to register: the chain refuses an agent that advertises no price")
+		}
 		bond, err = resolveBond(ctx, client, o.bond)
 		if err != nil {
 			return err
 		}
-		msg = agentchain.BuildRegister(priv, ownerAddr, want, bond)
+		msg = agentchain.BuildRegister(ownerAddr, want, bond)
 		action = "register"
 		fmt.Fprintf(w, "not registered — registering %s\n", agentID)
 		fmt.Fprintf(w, "  bond     %s\n", bond)

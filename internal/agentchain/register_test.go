@@ -10,7 +10,6 @@ import (
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/signer"
 	"github.com/svpchain/svpchain-perps-agent/internal/owner"
 )
 
@@ -22,40 +21,52 @@ func want() agentchain.Desired {
 	}
 }
 
-// The load-bearing test for the whole single-key model: a MsgRegisterAgent
-// built with one account in BOTH roles must pass the chain's own stateless
-// validation. That is what enforces AgentIdFromOperator and
-// PublicKeyMatchesOperator, so if collapsing owner and operator were not
-// allowed, this is where it would show.
+// wantRegister is want() plus the pricing a first registration must carry.
+func wantRegister() agentchain.Desired {
+	w := want()
+	w.Pricing = &agenttypes.Pricing{Amount: "1000000", Unit: "call"}
+	return w
+}
+
+// A MsgRegisterAgent built from the owner key alone must pass the chain's own
+// stateless validation, which is what enforces that the id derives from the
+// owner address (AgentIdFromOwner).
 func TestBuildRegisterPassesChainValidation(t *testing.T) {
-	hexKey, addrStr, err := owner.Generate()
-	require.NoError(t, err)
-	priv, err := signer.ParsePrivKey(hexKey)
+	_, addrStr, err := owner.Generate()
 	require.NoError(t, err)
 	addr, err := sdk.AccAddressFromBech32(addrStr)
 	require.NoError(t, err)
 
 	bond := sdk.Coin{Denom: "asvp", Amount: sdkmath.NewInt(5_000_000)}
-	msg := agentchain.BuildRegister(priv, addr, want(), bond)
+	msg := agentchain.BuildRegister(addr, wantRegister(), bond)
 
 	require.NoError(t, msg.ValidateBasic())
 	require.Equal(t, addrStr, msg.Owner)
-	require.Equal(t, addrStr, msg.Operator, "owner and operator are the same account")
 	require.Equal(t, agenttypes.DIDPrefix+addrStr, msg.AgentId)
-	require.Len(t, msg.PublicKey, agenttypes.PubKeyLen)
 	require.Equal(t, bond, msg.InitialBond)
+	require.Equal(t, wantRegister().Pricing, msg.Pricing)
 }
 
-// An update must never carry a public key: the chain refuses one outright
-// rather than ignoring it, because the key is the identity.
-func TestBuildUpdateOmitsPublicKey(t *testing.T) {
+// The chain refuses a registration without pricing, so a Desired missing it
+// must fail the same stateless check rather than reach the chain.
+func TestBuildRegisterWithoutPricingFailsValidation(t *testing.T) {
+	_, addrStr, err := owner.Generate()
+	require.NoError(t, err)
+	addr, err := sdk.AccAddressFromBech32(addrStr)
+	require.NoError(t, err)
+
+	bond := sdk.Coin{Denom: "asvp", Amount: sdkmath.NewInt(5_000_000)}
+	require.Error(t, agentchain.BuildRegister(addr, want(), bond).ValidateBasic())
+}
+
+// An update keeps the identity fields of the existing record.
+func TestBuildUpdateKeepsIdentity(t *testing.T) {
 	existing := &agenttypes.Agent{
 		AgentId:  "did:svp:svp1abc",
 		Owner:    "svp1owner",
 		Metadata: "kept",
 	}
 	msg := agentchain.BuildUpdate(existing, want())
-	require.Empty(t, msg.PublicKey)
 	require.Equal(t, existing.AgentId, msg.AgentId)
 	require.Equal(t, existing.Owner, msg.Owner)
 }
@@ -118,6 +129,16 @@ func TestDrift(t *testing.T) {
 		retagged := base
 		retagged.Capabilities = []string{"perps.trading"}
 		require.Len(t, agentchain.Drift(current, retagged), 1)
+	})
+
+	t.Run("pricing is drift only when configured and different", func(t *testing.T) {
+		require.Empty(t, agentchain.Drift(current, base), "unset pricing is not drift")
+		priced := *current
+		priced.Pricing = &agenttypes.Pricing{Amount: "1000000", Unit: "call"}
+		require.Empty(t, agentchain.Drift(&priced, wantRegister()))
+		repriced := wantRegister()
+		repriced.Pricing.Amount = "2000000"
+		require.Len(t, agentchain.Drift(&priced, repriced), 1)
 	})
 
 	t.Run("empty metadata leaves an existing value alone", func(t *testing.T) {

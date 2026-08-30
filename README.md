@@ -170,7 +170,7 @@ signs locally with the owner key — the right message for the state it finds:
 |---|---|
 | not registered | `MsgRegisterAgent` (`--bond` overrides the module's `MinBond`) |
 | registered, card hash moved | `MsgUpdateAgent` |
-| registered, endpoint or capabilities moved | `MsgUpdateAgent` |
+| registered, endpoint, capabilities or pricing moved | `MsgUpdateAgent` |
 | registered and current | nothing, and it says so |
 
 Both drifts are otherwise silent. A stale capability hash makes verifiers read
@@ -189,8 +189,13 @@ agent some other way — over an ssh tunnel before DNS is live, say:
 ```sh
 SVPCHAIN_PERPS_AGENT_OWNER_KEY=… go run ./cmd/agent-register \
   -url http://127.0.0.1:8082 -chain-id svp-2517-1 -grpc 127.0.0.1:9090 \
-  -capabilities perps.trading,perps.market-data
+  -capabilities perps.trading,perps.market-data -price-amount 1000000
 ```
+
+`-price-amount` is the fee advertised on chain per `-price-unit` (default
+`call`), in the settlement token's smallest unit; the chain refuses a
+registration without one. The deploy passes `--price-amount` /
+`SVPCHAIN_OPERATOR_PRICE_AMOUNT` (default `1000000`) through.
 
 ## The agent card is an interface
 

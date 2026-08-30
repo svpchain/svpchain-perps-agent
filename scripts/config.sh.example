@@ -65,6 +65,12 @@ SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
 SVPCHAIN_OPERATOR_CAPABILITIES="perps.trading,perps.market-data"
 SVPCHAIN_OPERATOR_METADATA="svpchain perps agent"
 
+# Price advertised on chain: an integer in the settlement token's smallest unit
+# per unit of work (1000000 is one USDV at six decimals, per call). It is
+# informational for discovery; fee collection happens in the settlement contract.
+SVPCHAIN_OPERATOR_PRICE_AMOUNT="1000000"
+SVPCHAIN_OPERATOR_PRICE_UNIT="call"
+
 # ---- optional families and tuning ------------------------------------------
 
 # How often the markets cache refreshes.

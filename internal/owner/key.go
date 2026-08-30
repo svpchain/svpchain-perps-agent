@@ -8,29 +8,21 @@
 // This one lives on the operator's own machine, in the agent's config
 // directory, and is read by cmd/agent-register alone.
 //
-// # One key, both chain roles
+// # One key, one chain identity
 //
-// x/agent separates two accounts. The OWNER signs the lifecycle messages
-// (register, update, deposit/withdraw bond, deregister) and is where a
-// withdrawn bond returns. The OPERATOR is the address the DID embeds —
-// did:svp:<bech32> — and whose public key verifies SVP-DT credentials the
-// agent issues.
-//
-// A caller-signed agent issues no credentials and holds no signing key, so
-// there is no second identity to mint. This key is registered as both, and the
-// agent id derives from it. MsgRegisterAgent accepts that: it requires the
-// public key to be the operator's own (PublicKeyMatchesOperator) and the id to
-// derive from the operator address (AgentIdFromOperator), and both hold when
-// the two roles are one account.
+// x/agent has a single account per agent: the OWNER signs the lifecycle
+// messages (register, update, deposit/withdraw bond, deregister), is where a
+// withdrawn bond returns, and is the address the DID embeds — did:svp:<bech32>
+// (AgentIdFromOwner). A caller-signed agent holds no other key, so this one is
+// the whole identity.
 //
 // # One key registers exactly one agent
 //
-// This is the cost of collapsing the roles, and it is not recoverable after
-// the fact. x/agent binds an operator address to at most one agent — see
-// keeper/registry.go, "operator %q is already bound to agent %q" — and the
-// registered public key is explicitly not updatable. So a second agent needs a
-// second owner key, and a fleet keeps one per agent. The deploy already gives
-// each agent its own config directory, which is where that separation lands.
+// Because the id derives from the owner address, one owner can hold at most
+// one agent, and that is not recoverable after the fact. A second agent needs
+// a second owner key, and a fleet keeps one per agent. The deploy already
+// gives each agent its own config directory, which is where that separation
+// lands.
 package owner
 
 import (

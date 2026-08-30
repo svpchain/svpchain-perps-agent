@@ -71,6 +71,11 @@
 #                                  by. Default "perps.trading,perps.market-data".
 #                                  SVPCHAIN_OPERATOR_CAPABILITIES
 #   --operator-metadata <text>     SVPCHAIN_OPERATOR_METADATA
+#   --price-amount <uint>          Fee per --price-unit, advertised on chain, in
+#                                  the settlement token's smallest unit. Default
+#                                  1000000 (one USDV at six decimals).
+#                                  SVPCHAIN_OPERATOR_PRICE_AMOUNT
+#   --price-unit <text>            Default "call". SVPCHAIN_OPERATOR_PRICE_UNIT
 #
 # Optional families and tuning:
 #   --markets-refresh <dur>        Default 30s.  SVPCHAIN_MARKETS_REFRESH
@@ -199,6 +204,7 @@ readonly CONFIG_VARS=(
   SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR SVPCHAIN_COMET_RPC
   SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OWNER_KEY
   SVPCHAIN_REGISTER_GRPC SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
+  SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
   SVPCHAIN_INSTALL_DIR
   SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
   SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
@@ -274,6 +280,8 @@ public_url="${SVPCHAIN_PERPS_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.or
 owner_key="${SVPCHAIN_PERPS_AGENT_OWNER_KEY:-}"
 operator_capabilities="${SVPCHAIN_OPERATOR_CAPABILITIES:-perps.trading,perps.market-data}"
 operator_metadata="${SVPCHAIN_OPERATOR_METADATA:-}"
+price_amount="${SVPCHAIN_OPERATOR_PRICE_AMOUNT:-1000000}"
+price_unit="${SVPCHAIN_OPERATOR_PRICE_UNIT:-call}"
 install_dir="${SVPCHAIN_INSTALL_DIR:-~/svpchain-perps-agent}"
 image_tag=""
 platform="linux/amd64"
@@ -308,6 +316,8 @@ while [[ $# -gt 0 ]]; do
     --public-url)             public_url="$2"; mark_flag SVPCHAIN_PERPS_AGENT_PUBLIC_URL;  shift 2 ;;
     --operator-capabilities)  operator_capabilities="$2"; mark_flag SVPCHAIN_OPERATOR_CAPABILITIES; shift 2 ;;
     --operator-metadata)      operator_metadata="$2"; mark_flag SVPCHAIN_OPERATOR_METADATA; shift 2 ;;
+    --price-amount)           price_amount="$2"; mark_flag SVPCHAIN_OPERATOR_PRICE_AMOUNT; shift 2 ;;
+    --price-unit)             price_unit="$2"; mark_flag SVPCHAIN_OPERATOR_PRICE_UNIT; shift 2 ;;
     --install-dir)            install_dir="$2"; mark_flag SVPCHAIN_INSTALL_DIR;       shift 2 ;;
     --image-tag)              image_tag="$2";         shift 2 ;;
     --platform)               platform="$2";          shift 2 ;;
@@ -758,6 +768,8 @@ if [[ "$mode" == "register" ]]; then
       -chain-id "$chain_id"
       -grpc "$register_grpc"
       -capabilities "$operator_capabilities"
+      -price-amount "$price_amount"
+      -price-unit "$price_unit"
     )
     if [[ -n "$register_bond" ]]; then    args+=(-bond "$register_bond");        fi
     if [[ -n "$operator_metadata" ]]; then args+=(-metadata "$operator_metadata"); fi
@@ -785,6 +797,7 @@ if [[ "$mode" == "print-env" ]]; then
     SVPCHAIN_COMET_RPC SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL
     SVPCHAIN_PERPS_AGENT_OWNER_KEY SVPCHAIN_REGISTER_GRPC
     SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
+    SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
     SVPCHAIN_MARKETS_REFRESH
     SVPCHAIN_DEPOSIT_MAX_USDC SVPCHAIN_WITHDRAW_MAX_USDC
     SVPCHAIN_TRANSFER_MAX_USDC SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
@@ -795,6 +808,7 @@ if [[ "$mode" == "print-env" ]]; then
     "$comet_rpc" "$indexer" "$public_url"
     "$owner_key" "$register_grpc"
     "$operator_capabilities" "$operator_metadata"
+    "$price_amount" "$price_unit"
     "$markets_refresh"
     "$deposit_max" "$withdraw_max"
     "$transfer_max" "$daily_withdraw_cap"
@@ -898,9 +912,12 @@ step "Preflight (local + remote)"
 info "host=$host${jump_box:+ via jump-box=$jump_box} image=$image_ref platform=$platform"
 info "install_dir=$install_dir public_url=$public_url"
 if [[ "$dry_run" != "1" ]]; then
+  # Two separate checks so a network failure is not reported as a docker one.
+  ssh_err="$($ssh_cmd -o ConnectTimeout=15 "$host" true 2>&1 >/dev/null)" \
+    || fail "cannot ssh to $host${jump_box:+ via $jump_box}: ${ssh_err:-unknown error} (network/VPN/firewall allowlist? ssh keys ok?)"
   $ssh_cmd "$host" "docker version --format '{{.Server.Version}}'" \
     >/dev/null 2>&1 \
-    || fail "remote docker not reachable at $host without sudo (ssh keys ok? docker installed? ssh user in the docker group?)"
+    || fail "ssh to $host works but docker is not usable without sudo (docker installed? daemon running? ssh user in the docker group?)"
   $ssh_cmd "$host" "docker compose version" >/dev/null 2>&1 \
     || fail "remote 'docker compose' (v2 plugin) not available at $host"
   pass "remote docker + compose reachable"
