@@ -111,10 +111,15 @@ func (r *restClient) do(req *http.Request, out proto.Message) error {
 }
 
 // -- x/agent (agentQuerier) ----------------------------------------------
+//
+// Paths follow proto/dydxprotocol/agent/query.proto's google.api.http
+// options — the proto, not the generated query.pb.gw.go, which lags it (it
+// still binds Agent at /dydxprotocol/agent/{agent_id}, a route the running
+// chain answers with 501 Unimplemented).
 
 func (r *restClient) Agent(ctx context.Context, in *agenttypes.QueryAgent, _ ...grpc.CallOption) (*agenttypes.QueryAgentResponse, error) {
 	out := &agenttypes.QueryAgentResponse{}
-	return out, r.get(ctx, "/dydxprotocol/agent/"+url.PathEscape(in.AgentId), out)
+	return out, r.get(ctx, "/dydxprotocol/agent/agent/"+url.PathEscape(in.AgentId), out)
 }
 
 func (r *restClient) Params(ctx context.Context, _ *agenttypes.QueryParams, _ ...grpc.CallOption) (*agenttypes.QueryParamsResponse, error) {

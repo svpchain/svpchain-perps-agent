@@ -62,7 +62,7 @@ func TestRESTAgentByIDHitsGatewayPath(t *testing.T) {
 	agent, found, err := c.AgentByID(context.Background(), "did:svp:abc")
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Equal(t, "/dydxprotocol/agent/did:svp:abc", gotPath)
+	require.Equal(t, "/dydxprotocol/agent/agent/did:svp:abc", gotPath)
 	require.Equal(t, "https://x", agent.Endpoint)
 }
 
