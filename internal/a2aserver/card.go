@@ -29,8 +29,8 @@ var skillMetas = []skillMeta{
 		id:   toolbridge.SkillMarketData,
 		name: "SVP-Chain Market Data",
 		desc: "Read-only market intelligence: perpetual markets, live orderbooks, candles, " +
-			"trades, funding, oracle price, and a batch-auction clearing-price estimate " +
-			"for a given order size. Needs no credential and no account.",
+			"trades, funding, and a batch-auction clearing-price estimate for a given " +
+			"order size. Needs no credential and no account.",
 		tags: []string{"market-data", "orderbook", "funding", "perpetuals", "read-only"},
 		examples: []string{
 			`{"skill":"svpchain-market-data","query":"estimate","ticker":"BTC-USD","side":"buy","size":"2.5"}`,

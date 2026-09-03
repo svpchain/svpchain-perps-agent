@@ -31,14 +31,17 @@
 // testnet-only. Funding lives in svpchain-evm-agent.
 //
 // Two behaviours changed shape but not observable result, because both were
-// already gated on an EVM client internal/config has no way to configure (the
-// [evm] section went away with df98513):
+// already gated on an EVM client internal/config has no way to configure (no
+// commit in this repo ever added an [evm] section or an evm_rpc_url):
 //
 //   - get_balance no longer merges contract-read ERC-20 balances. That path
 //     short-circuited on a nil EVM client, so it only ever returned nil.
-//   - get_oracle_price is now a literal refusal rather than a computed one. It
-//     stays registered and advertised so the served card keeps the tool set
-//     callers already know.
+//   - get_oracle_price is gone. It was kept for a while as a literal refusal,
+//     on the reasoning that dropping it would move the served card for no
+//     behavioural gain. That had it backwards: the tool never returned a price
+//     from this binary in any commit, so no caller could depend on it, and the
+//     card was advertising a capability the agent could not deliver. A working
+//     implementation lives in svpchain-defi-mcp, gated on an oracle address.
 //
 // # Files that are not verbatim
 //

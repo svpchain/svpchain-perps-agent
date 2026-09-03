@@ -30,7 +30,6 @@ func (r *Registry) RegisterMarketData(h *tools.Handlers) {
 	r.add(SkillMarketData, "list_markets", adapt(h.ListMarkets))
 	r.add(SkillMarketData, "get_market", adapt(h.GetMarket))
 	r.add(SkillMarketData, "get_orderbook", adapt(h.GetOrderbook))
-	r.add(SkillMarketData, "get_oracle_price", adapt(h.GetOraclePrice))
 	r.add(SkillMarketData, "get_candles", adapt(h.GetCandles))
 	r.add(SkillMarketData, "get_trades", adapt(h.GetTrades))
 	r.add(SkillMarketData, "get_sparklines", adapt(h.GetSparklines))

@@ -11,7 +11,7 @@ import (
 // the completeness contract for "the A2A surface covers every MCP tool".
 var expectedOps = map[string][]string{
 	SkillMarketData: {
-		"list_markets", "get_market", "get_orderbook", "get_oracle_price",
+		"list_markets", "get_market", "get_orderbook",
 		"get_candles", "get_trades", "get_sparklines", "get_historical_funding",
 		"get_height", "get_time",
 	},
@@ -52,12 +52,15 @@ func TestRegistryCoversEveryExpectedTool(t *testing.T) {
 			}
 		}
 	}
-	// 37 = 36 bridged MCP tools (the 64-tool MCP surface minus the 14 EVM and
-	// 12 Lendora tools this binary does not bridge, minus the 2 faucet tools
-	// it no longer serves) + list_tools, which is this agent's own and has no
-	// MCP twin.
-	if total != 37 {
-		t.Fatalf("expected table lists %d tools; the bridged surface is 37 — fix the table", total)
+	// 36 = the 35 tools svpchain-dex-mcp serves + list_tools, which is this
+	// agent's own and has no MCP twin.
+	//
+	// That the bridged count now equals the DEX server's catalog exactly is
+	// the point, not a coincidence: those 35 are the operations this agent is
+	// moving onto the remote server, and a mismatch in either direction means
+	// the A2A surface and the MCP surface have drifted.
+	if total != 36 {
+		t.Fatalf("expected table lists %d tools; the bridged surface is 36 — fix the table", total)
 	}
 
 	// The reverse direction: nothing extra is registered under these skills.
