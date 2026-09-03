@@ -31,6 +31,15 @@ SVPCHAIN_GRPC_ADDR="127.0.0.1:9090"
 SVPCHAIN_COMET_RPC="http://127.0.0.1:26657"
 SVPCHAIN_INDEXER="http://127.0.0.1:3002"
 
+# The remote MCP server this agent's operations run on (svpchain-dex-mcp). It
+# serves MCP at the root of its listener, so this is an origin and not a path.
+#
+# Unlike the chain endpoints above this is not loopback by default: there is a
+# deployed server already serving the catalog, and pointing at it is what
+# works out of the box. To run svpchain-dex-mcp beside this agent instead,
+# set this to its port — network_mode: host means 127.0.0.1 reaches it.
+SVPCHAIN_MCP_ENDPOINT="https://mcp-testnet.svpchain.org"
+
 # The URL callers reach this agent at. Used verbatim — nothing is appended, so
 # it must be the URL your reverse proxy routes to this agent.
 SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"

@@ -14,6 +14,16 @@ grpc_addr        = "127.0.0.1:9090"
 comet_rpc_url    = "http://127.0.0.1:26657"
 indexer_base_url = "http://127.0.0.1:3002"
 
+# The remote MCP server implementing this agent's operations (svpchain-dex-mcp).
+# It serves MCP at the root of its listener, so this is an origin, not a path.
+#
+# Optional while the agent still answers from its own handlers: set, it is
+# dialled at boot and its catalog checked against the surface this agent
+# advertises, so a wrong URL surfaces before it is load bearing.
+[mcp]
+endpoint = "https://mcp-testnet.svpchain.org"
+# call_timeout = "30s"
+
 # Caps on funds movements, in human USDC. Zero disables a check.
 [limits]
 deposit_max_usdc        = 1000

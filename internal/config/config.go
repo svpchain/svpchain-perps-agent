@@ -46,6 +46,26 @@ type Config struct {
 	Cache  CacheConfig  `toml:"cache"`
 	Limits LimitsConfig `toml:"limits"`
 	Fee    FeeConfig    `toml:"fee"`
+	MCP    MCPConfig    `toml:"mcp"`
+}
+
+// MCPConfig points the agent at the remote MCP server that implements its
+// operations — svpchain-dex-mcp, which owns the chain clients, the tx
+// builders, the policy engine and the tenant stores this agent is moving off.
+//
+// Optional today: the agent still serves every operation from the handlers in
+// internal/mcp, and an endpoint set here is dialled at boot to check that the
+// remote's catalog matches the surface this agent advertises. Configuring it
+// early is how an operator finds out the URL is wrong before it is load
+// bearing. It becomes required when dispatch moves.
+type MCPConfig struct {
+	// Endpoint is the server's Streamable HTTP URL. svpchain-dex-mcp serves
+	// MCP at the root of its listener, so this is an origin and not a path.
+	Endpoint string `toml:"endpoint"`
+
+	// CallTimeout bounds one tool call, as a Go duration string ("30s").
+	// Zero means the mcpclient package default.
+	CallTimeout Duration `toml:"call_timeout"`
 }
 
 // DEXChainConfig points the agent at the DEX chain (an EVM-compatible

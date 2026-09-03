@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -97,5 +98,35 @@ amount = "not-a-number"
 `
 	if _, err := Load(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), "fee.amount") {
 		t.Errorf("bad fee amount must fail, got %v", err)
+	}
+}
+
+// The MCP endpoint is how a deploy names the remote server this agent's
+// operations run on. It is optional while the agent still answers from its own
+// handlers, so both states have to load.
+func TestMCPSectionLoads(t *testing.T) {
+	cfg, err := Load(writeConfig(t, minimal+`
+[mcp]
+endpoint     = "https://mcp-testnet.svpchain.org"
+call_timeout = "45s"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.MCP.Endpoint; got != "https://mcp-testnet.svpchain.org" {
+		t.Errorf("endpoint = %q", got)
+	}
+	if got := time.Duration(cfg.MCP.CallTimeout); got != 45*time.Second {
+		t.Errorf("call_timeout = %v, want 45s", got)
+	}
+}
+
+func TestMCPSectionIsOptional(t *testing.T) {
+	cfg, err := Load(writeConfig(t, minimal))
+	if err != nil {
+		t.Fatalf("a config with no [mcp] section must still load: %v", err)
+	}
+	if cfg.MCP.Endpoint != "" {
+		t.Errorf("endpoint defaulted to %q; it must stay empty so the agent can tell configured from not", cfg.MCP.Endpoint)
 	}
 }

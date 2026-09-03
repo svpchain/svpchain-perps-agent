@@ -46,6 +46,16 @@
 #   --comet-rpc <url>              SVPCHAIN_COMET_RPC    (http://127.0.0.1:26657)
 #   --indexer <url>                SVPCHAIN_INDEXER      (http://127.0.0.1:3002)
 #
+# Services:
+#   --mcp-endpoint <url>           The remote MCP server implementing this
+#                                  agent's operations (svpchain-dex-mcp). It
+#                                  serves MCP at the root of its listener, so
+#                                  this is an origin, not a path. Reached from
+#                                  the agent container, so a sidecar on the
+#                                  same host is http://127.0.0.1:<port>.
+#                                  SVPCHAIN_MCP_ENDPOINT
+#                                                        (https://mcp-testnet.svpchain.org)
+#
 # Identity and registration:
 #   --public-url <url>             The URL this agent advertises, used verbatim.
 #                                  SVPCHAIN_PERPS_AGENT_PUBLIC_URL
@@ -220,6 +230,7 @@ readonly CONFIG_VARS=(
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
   SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
   SVPCHAIN_INSTALL_DIR
+  SVPCHAIN_MCP_ENDPOINT
   SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
   SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
   SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
@@ -287,6 +298,12 @@ chain_id="${SVPCHAIN_CHAIN_ID:-svp-2517-1}"
 grpc_addr="${SVPCHAIN_GRPC_ADDR:-127.0.0.1:9090}"
 comet_rpc="${SVPCHAIN_COMET_RPC:-http://127.0.0.1:26657}"
 indexer="${SVPCHAIN_INDEXER:-http://127.0.0.1:3002}"
+# The remote MCP server this agent's operations run on. Unlike the chain
+# endpoints above it does NOT default to loopback: there is a deployed server
+# already serving this catalog, and pointing at it is the working default.
+# Running svpchain-dex-mcp beside this agent instead is a matter of setting
+# this to its port.
+mcp_endpoint="${SVPCHAIN_MCP_ENDPOINT:-https://mcp-testnet.svpchain.org}"
 public_url="${SVPCHAIN_PERPS_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.org}"
 # The owner key MATERIAL, not a path. There is deliberately no flag for it:
 # a hex key in argv is visible in `ps` and lands in shell history. The config
@@ -333,6 +350,7 @@ while [[ $# -gt 0 ]]; do
     --grpc-addr)              grpc_addr="$2"; mark_flag SVPCHAIN_GRPC_ADDR;         shift 2 ;;
     --comet-rpc)              comet_rpc="$2"; mark_flag SVPCHAIN_COMET_RPC;         shift 2 ;;
     --indexer)                indexer="$2"; mark_flag SVPCHAIN_INDEXER;           shift 2 ;;
+    --mcp-endpoint)           mcp_endpoint="$2"; mark_flag SVPCHAIN_MCP_ENDPOINT;   shift 2 ;;
     --public-url)             public_url="$2"; mark_flag SVPCHAIN_PERPS_AGENT_PUBLIC_URL;  shift 2 ;;
     --operator-capabilities)  operator_capabilities="$2"; mark_flag SVPCHAIN_OPERATOR_CAPABILITIES; shift 2 ;;
     --operator-metadata)      operator_metadata="$2"; mark_flag SVPCHAIN_OPERATOR_METADATA; shift 2 ;;
@@ -431,6 +449,11 @@ id               = "${chain_id}"
 grpc_addr        = "${grpc_addr}"
 comet_rpc_url    = "${comet_rpc}"
 indexer_base_url = "${indexer}"
+EOF
+  cat <<EOF
+
+[mcp]
+endpoint = "${mcp_endpoint}"
 EOF
   cat <<EOF
 
@@ -836,6 +859,7 @@ if [[ "$mode" == "print-env" ]]; then
     SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
     SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
     SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
+    SVPCHAIN_MCP_ENDPOINT
     SVPCHAIN_MARKETS_REFRESH
     SVPCHAIN_DEPOSIT_MAX_USDC SVPCHAIN_WITHDRAW_MAX_USDC
     SVPCHAIN_TRANSFER_MAX_USDC SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
@@ -848,6 +872,7 @@ if [[ "$mode" == "print-env" ]]; then
     "$agent_chain_id" "$agent_chain_rest"
     "$operator_capabilities" "$operator_metadata"
     "$price_amount" "$price_unit"
+    "$mcp_endpoint"
     "$markets_refresh"
     "$deposit_max" "$withdraw_max"
     "$transfer_max" "$daily_withdraw_cap"

@@ -31,6 +31,7 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
 
@@ -45,12 +46,21 @@ type App struct {
 	Indexer  *indexer.Client
 	GrpcConn *grpc.ClientConn
 	Logger   log.Logger
+
+	// MCP is the remote server this agent's operations are moving onto. Nil
+	// when no endpoint is configured, which is still the supported state: the
+	// handlers above serve every operation, and this connection only checks
+	// that the remote agrees with what the card advertises.
+	MCP *mcpclient.Client
 }
 
 // Close releases the app's long-lived connections.
 func (a *App) Close() {
 	if a.GrpcConn != nil {
 		_ = a.GrpcConn.Close()
+	}
+	if a.MCP != nil {
+		a.MCP.Close()
 	}
 }
 
@@ -59,6 +69,11 @@ func (a *App) Close() {
 // and its Run fails fast when the chain is unreachable — surfacing a dead gRPC
 // endpoint at boot instead of on the first trade.
 func (a *App) Run(ctx context.Context) error {
+	if a.MCP != nil {
+		go a.MCP.Run(ctx)
+		go a.checkMCPCatalog(ctx)
+	}
+
 	errc := make(chan error, 1)
 	go func() { errc <- a.Markets.Run(ctx) }()
 	select {
@@ -69,6 +84,43 @@ func (a *App) Run(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 	return nil
+}
+
+// checkMCPCatalog reports whether the configured MCP server serves the surface
+// this agent advertises.
+//
+// ★ Deliberately not fatal, and deliberately not on the boot path. Nothing
+// dispatches to the remote yet — every operation still runs on the handlers in
+// internal/mcp — so a server that is down or behind must not stop this agent
+// from serving. What it buys is that a wrong endpoint, or a server that has
+// moved on, is a line in the log now rather than a surprise when dispatch
+// moves. It becomes a boot failure then, because at that point a missing tool
+// is an operation the card promises and nothing can answer.
+func (a *App) checkMCPCatalog(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	remote, err := a.MCP.ListTools(ctx)
+	if err != nil {
+		a.Logger.Error("mcp server unreachable; its catalog was not checked",
+			"endpoint", a.MCP.Endpoint(), "error", err)
+		return
+	}
+	names := make([]string, 0, len(remote))
+	for _, t := range remote {
+		names = append(names, t.Name)
+	}
+
+	diff := a.Registry.DiffCatalog(names)
+	if diff.OK() {
+		a.Logger.Info("mcp server catalog matches the advertised surface",
+			"endpoint", a.MCP.Endpoint(), "tools", len(names))
+		return
+	}
+	a.Logger.Error("mcp server catalog disagrees with the advertised surface",
+		"endpoint", a.MCP.Endpoint(),
+		"advertised_but_not_served", diff.Missing,
+		"served_but_not_bridged", diff.Extra)
 }
 
 // dynamicTenantAdapter converts auth.TenantRecord into policy.TenantPolicy so
@@ -174,6 +226,22 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 
 	p.Register(registry, handlers)
 
+	// Optional: an endpoint here is dialled lazily, so a server that is down
+	// costs the agent nothing until something asks it a question.
+	var mcpConn *mcpclient.Client
+	if cfg.MCP.Endpoint != "" {
+		mcpConn, err = mcpclient.New(mcpclient.Config{
+			Endpoint:    cfg.MCP.Endpoint,
+			Name:        "svpchain-perps-agent",
+			Version:     p.Name,
+			CallTimeout: time.Duration(cfg.MCP.CallTimeout),
+		})
+		if err != nil {
+			grpcConn.Close()
+			return nil, fmt.Errorf("mcp client: %w", err)
+		}
+	}
+
 	return &App{
 		Handlers: handlers,
 		Registry: registry,
@@ -183,5 +251,6 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 		Indexer:  idx,
 		GrpcConn: grpcConn,
 		Logger:   logger,
+		MCP:      mcpConn,
 	}, nil
 }
