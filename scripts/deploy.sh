@@ -54,7 +54,7 @@
 #                                  the agent container, so a sidecar on the
 #                                  same host is http://127.0.0.1:<port>.
 #                                  SVPCHAIN_MCP_ENDPOINT
-#                                                        (https://mcp-testnet.svpchain.org)
+#                                  (https://dex-mcp-testnet.svpchain.org/)
 #
 # Identity and registration:
 #   --public-url <url>             The URL this agent advertises, used verbatim.
@@ -303,7 +303,7 @@ indexer="${SVPCHAIN_INDEXER:-http://127.0.0.1:3002}"
 # already serving this catalog, and pointing at it is the working default.
 # Running svpchain-dex-mcp beside this agent instead is a matter of setting
 # this to its port.
-mcp_endpoint="${SVPCHAIN_MCP_ENDPOINT:-https://mcp-testnet.svpchain.org}"
+mcp_endpoint="${SVPCHAIN_MCP_ENDPOINT:-https://dex-mcp-testnet.svpchain.org/}"
 public_url="${SVPCHAIN_PERPS_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.org}"
 # The owner key MATERIAL, not a path. There is deliberately no flag for it:
 # a hex key in argv is visible in `ps` and lands in shell history. The config

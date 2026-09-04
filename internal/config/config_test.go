@@ -107,13 +107,13 @@ amount = "not-a-number"
 func TestMCPSectionLoads(t *testing.T) {
 	cfg, err := Load(writeConfig(t, minimal+`
 [mcp]
-endpoint     = "https://mcp-testnet.svpchain.org"
+endpoint     = "https://dex-mcp-testnet.svpchain.org/"
 call_timeout = "45s"
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.MCP.Endpoint; got != "https://mcp-testnet.svpchain.org" {
+	if got := cfg.MCP.Endpoint; got != "https://dex-mcp-testnet.svpchain.org/" {
 		t.Errorf("endpoint = %q", got)
 	}
 	if got := time.Duration(cfg.MCP.CallTimeout); got != 45*time.Second {

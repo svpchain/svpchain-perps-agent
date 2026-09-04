@@ -38,7 +38,7 @@ SVPCHAIN_INDEXER="http://127.0.0.1:3002"
 # deployed server already serving the catalog, and pointing at it is what
 # works out of the box. To run svpchain-dex-mcp beside this agent instead,
 # set this to its port — network_mode: host means 127.0.0.1 reaches it.
-SVPCHAIN_MCP_ENDPOINT="https://mcp-testnet.svpchain.org"
+SVPCHAIN_MCP_ENDPOINT="https://dex-mcp-testnet.svpchain.org/"
 
 # The URL callers reach this agent at. Used verbatim — nothing is appended, so
 # it must be the URL your reverse proxy routes to this agent.

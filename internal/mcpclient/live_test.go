@@ -14,7 +14,7 @@ import (
 // deployment. Skipped unless SVPCHAIN_MCP_ENDPOINT is set, so the default
 // `go test ./...` stays hermetic and offline.
 //
-//	SVPCHAIN_MCP_ENDPOINT=https://mcp-testnet.svpchain.org/ go test ./internal/mcpclient/ -run Live -v
+//	SVPCHAIN_MCP_ENDPOINT=https://dex-mcp-testnet.svpchain.org/ go test ./internal/mcpclient/ -run Live -v
 //
 // It calls only unauthenticated reads, so it needs no key and no bearer.
 func TestLiveDexMCP(t *testing.T) {
