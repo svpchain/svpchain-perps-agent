@@ -30,6 +30,10 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
+
+	"github.com/svpchain/svpchain-perps-agent/internal/assistant"
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
@@ -242,6 +246,26 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 		}
 	}
 
+	// The model-driven skill, when the operator has configured one. It needs
+	// the MCP server (that is where its tools are) and a model provider, and
+	// it is left unregistered without both — so the card advertises it exactly
+	// where it works.
+	if mcpConn != nil {
+		provider, why := buildProvider(cfg)
+		switch {
+		case provider != nil:
+			registry.RegisterAssistant(assistant.New(provider, mcpConn, assistant.Config{
+				MaxIterations: cfg.Assistant.MaxIterations,
+				MaxToolCalls:  cfg.Assistant.MaxToolCalls,
+				Timeout:       time.Duration(cfg.Assistant.Timeout),
+			}))
+			logger.Info("assistant skill enabled",
+				"provider", provider.Name(), "model", provider.Model())
+		default:
+			logger.Info("assistant skill not served", "reason", why)
+		}
+	}
+
 	return &App{
 		Handlers: handlers,
 		Registry: registry,
@@ -253,4 +277,45 @@ func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, err
 		Logger:   logger,
 		MCP:      mcpConn,
 	}, nil
+}
+
+// buildProvider constructs the planner's model API from config, or explains
+// why it cannot. A missing key is the ordinary case — the skill is opt-in —
+// so it returns a reason rather than an error, and the agent serves everything
+// else regardless.
+func buildProvider(cfg *config.Config) (assistant.Provider, string) {
+	switch cfg.Assistant.Provider {
+	case "", assistant.ProviderAnthropic:
+		if os.Getenv("ANTHROPIC_API_KEY") == "" {
+			return nil, "ANTHROPIC_API_KEY is unset"
+		}
+		// The SDK reads ANTHROPIC_BASE_URL itself; an explicit base_url wins,
+		// which is what lets one config file name the endpoint outright.
+		var opts []option.RequestOption
+		if cfg.Assistant.BaseURL != "" {
+			opts = append(opts, option.WithBaseURL(cfg.Assistant.BaseURL))
+		}
+		model := cfg.Assistant.Model
+		if model == "" {
+			model = assistant.DefaultModel
+		}
+		return assistant.NewAnthropicProvider(anthropic.NewClient(opts...), model), ""
+
+	case assistant.ProviderOpenAI:
+		key := os.Getenv("OPENAI_API_KEY")
+		if key == "" {
+			return nil, "OPENAI_API_KEY is unset"
+		}
+		p, err := assistant.NewOpenAIProvider(assistant.OpenAIConfig{
+			BaseURL: cfg.Assistant.BaseURL,
+			APIKey:  key,
+			Model:   cfg.Assistant.Model,
+		})
+		if err != nil {
+			return nil, err.Error()
+		}
+		return p, ""
+	}
+	// Unreachable: config.Validate rejects any other name at load.
+	return nil, "unknown provider " + cfg.Assistant.Provider
 }

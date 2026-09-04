@@ -130,3 +130,44 @@ func TestMCPSectionIsOptional(t *testing.T) {
 		t.Errorf("endpoint defaulted to %q; it must stay empty so the agent can tell configured from not", cfg.MCP.Endpoint)
 	}
 }
+
+// A provider name that is not one of the two must fail at load. Defaulting a
+// typo to anthropic would run the wrong API against the wrong key variable and
+// surface at the first question instead of at boot.
+func TestAssistantProviderMustBeKnown(t *testing.T) {
+	for _, name := range []string{"anthropic", "openai", ""} {
+		body := minimal
+		if name != "" {
+			body += "\n[assistant]\nprovider = \"" + name + "\"\n"
+		}
+		if _, err := Load(writeConfig(t, body)); err != nil {
+			t.Errorf("provider %q was rejected: %v", name, err)
+		}
+	}
+	_, err := Load(writeConfig(t, minimal+`
+[assistant]
+provider = "gemini"
+`))
+	if err == nil {
+		t.Fatal("an unknown provider name was accepted")
+	}
+	if !strings.Contains(err.Error(), "anthropic") {
+		t.Errorf("the error does not name the valid options: %v", err)
+	}
+}
+
+func TestAssistantProviderSettingsLoad(t *testing.T) {
+	cfg, err := Load(writeConfig(t, minimal+`
+[assistant]
+provider = "openai"
+base_url = "https://api.deepseek.com"
+model    = "deepseek-v4-pro"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Assistant.Provider != "openai" || cfg.Assistant.BaseURL != "https://api.deepseek.com" ||
+		cfg.Assistant.Model != "deepseek-v4-pro" {
+		t.Errorf("assistant config = %+v", cfg.Assistant)
+	}
+}

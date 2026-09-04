@@ -40,6 +40,29 @@ SVPCHAIN_INDEXER="http://127.0.0.1:3002"
 # set this to its port — network_mode: host means 127.0.0.1 reaches it.
 SVPCHAIN_MCP_ENDPOINT="https://dex-mcp-testnet.svpchain.org/"
 
+# Enables the svpchain-assistant skill, which answers a plain-English question
+# by planning MCP tool calls. Unset, the skill is not served and the card does
+# not advertise it — so turning it on or off moves the card, and the deployment
+# needs a --register run afterwards like any other card change.
+#
+# This is the one secret shipped to the deployed host: the agent calls the model
+# at runtime, so the key lands there as assistant.env at 0600, referenced by the
+# compose env_file. It is never written into agent.toml.
+#
+# Left COMMENTED OUT for the same reason as the owner key below: this file is
+# sourced, so an uncommented line reading a secret you have not stored yet would
+# fail the source and take every command down with it.
+#SVPCHAIN_ANTHROPIC_API_KEY="$(op read op://vault/anthropic/api-key)"
+
+# To run the planner on the openai chat-completions format instead — OpenAI
+# itself, DeepSeek, or a local runtime — set the provider, the endpoint and the
+# model, and supply the matching key. The endpoint and model are ordinary
+# settings; only the key is a secret.
+#SVPCHAIN_ASSISTANT_PROVIDER="openai"
+#SVPCHAIN_ASSISTANT_BASE_URL="https://api.deepseek.com"
+#SVPCHAIN_ASSISTANT_MODEL="deepseek-v4-pro"
+#SVPCHAIN_OPENAI_API_KEY="$(op read op://vault/deepseek/api-key)"
+
 # The URL callers reach this agent at. Used verbatim — nothing is appended, so
 # it must be the URL your reverse proxy routes to this agent.
 SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"

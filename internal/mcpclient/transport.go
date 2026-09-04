@@ -65,3 +65,26 @@ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	return t.base.RoundTrip(req)
 }
+
+// callerKey carries the identity of the A2A caller that a request is being
+// served for, as distinct from identityKey above, which carries the
+// credentials for one outgoing HTTP request.
+//
+// They hold the same type and usually the same value. They are separate
+// because they answer different questions: one is "who asked", set once when
+// the A2A request arrives, and the other is "who is this call made as", set by
+// CallTool immediately before the transport reads it. Anything that fans a
+// single request out into several tool calls -- the assistant's planning loop
+// -- reads the first and passes it as the second.
+type callerKey struct{}
+
+// WithCaller returns ctx carrying the identity of the A2A caller.
+func WithCaller(ctx context.Context, id Identity) context.Context {
+	return context.WithValue(ctx, callerKey{}, id)
+}
+
+// CallerFrom returns the A2A caller's identity, if one was attached.
+func CallerFrom(ctx context.Context) (Identity, bool) {
+	id, ok := ctx.Value(callerKey{}).(Identity)
+	return id, ok
+}

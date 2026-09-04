@@ -56,6 +56,33 @@
 #                                  SVPCHAIN_MCP_ENDPOINT
 #                                  (https://dex-mcp-testnet.svpchain.org/)
 #
+#   SVPCHAIN_ANTHROPIC_API_KEY
+#                                  Enables the svpchain-assistant skill, which
+#                                  answers a plain-English question by planning
+#                                  MCP tool calls. Unset, the skill is not
+#                                  served and the card does not advertise it.
+#                                  No flag: a key in argv shows up in `ps`.
+#                                  This is the ONE secret shipped to the host —
+#                                  the agent calls the model at runtime — as
+#                                  ${install_dir}/assistant.env at 0600.
+#
+#   SVPCHAIN_OPENAI_API_KEY        The same, for the openai-format provider.
+#                                  Shipped the same way; which one is read
+#                                  follows from --assistant-provider.
+#
+#   --assistant-provider <name>    anthropic (default) or openai. The openai
+#                                  format is served by OpenAI, DeepSeek and
+#                                  most local runtimes.
+#                                                    SVPCHAIN_ASSISTANT_PROVIDER
+#   --assistant-base-url <url>     Override the provider's endpoint — this is
+#                                  how one provider reaches several vendors,
+#                                  e.g. https://api.deepseek.com with the
+#                                  openai provider. Not a secret.
+#                                                    SVPCHAIN_ASSISTANT_BASE_URL
+#   --assistant-model <id>         Model id. Optional on anthropic, required
+#                                  on openai, whose vendors share no names.
+#                                                       SVPCHAIN_ASSISTANT_MODEL
+#
 # Identity and registration:
 #   --public-url <url>             The URL this agent advertises, used verbatim.
 #                                  SVPCHAIN_PERPS_AGENT_PUBLIC_URL
@@ -230,7 +257,8 @@ readonly CONFIG_VARS=(
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
   SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
   SVPCHAIN_INSTALL_DIR
-  SVPCHAIN_MCP_ENDPOINT
+  SVPCHAIN_MCP_ENDPOINT SVPCHAIN_ANTHROPIC_API_KEY SVPCHAIN_OPENAI_API_KEY
+  SVPCHAIN_ASSISTANT_PROVIDER SVPCHAIN_ASSISTANT_BASE_URL SVPCHAIN_ASSISTANT_MODEL
   SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
   SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
   SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
@@ -304,6 +332,22 @@ indexer="${SVPCHAIN_INDEXER:-http://127.0.0.1:3002}"
 # Running svpchain-dex-mcp beside this agent instead is a matter of setting
 # this to its port.
 mcp_endpoint="${SVPCHAIN_MCP_ENDPOINT:-https://dex-mcp-testnet.svpchain.org/}"
+# The model API key MATERIAL. Like the owner key it takes no flag, for the same
+# reason: a secret in argv is visible in `ps` and lands in shell history. Unlike
+# the owner key it IS shipped to the host, because the agent calls the model at
+# runtime rather than at deploy time — so it goes in a 0600 env file beside the
+# config, never into agent.toml, which is rendered, rsynced and printable.
+anthropic_api_key="${SVPCHAIN_ANTHROPIC_API_KEY:-}"
+# The same, for the openai-format provider. Which of the two is read follows
+# from assistant.provider; both are shipped when both are set, so switching
+# provider is a config change rather than a re-keying.
+openai_api_key="${SVPCHAIN_OPENAI_API_KEY:-}"
+# Which model API the planner speaks, where it lives, and which model. The URL
+# and model are ordinary settings, not secrets: the endpoint is public and
+# seeing it in --print-config is a diagnostic.
+assistant_provider="${SVPCHAIN_ASSISTANT_PROVIDER:-}"
+assistant_base_url="${SVPCHAIN_ASSISTANT_BASE_URL:-}"
+assistant_model="${SVPCHAIN_ASSISTANT_MODEL:-}"
 public_url="${SVPCHAIN_PERPS_AGENT_PUBLIC_URL:-https://agent-testnet.svpchain.org}"
 # The owner key MATERIAL, not a path. There is deliberately no flag for it:
 # a hex key in argv is visible in `ps` and lands in shell history. The config
@@ -351,6 +395,9 @@ while [[ $# -gt 0 ]]; do
     --comet-rpc)              comet_rpc="$2"; mark_flag SVPCHAIN_COMET_RPC;         shift 2 ;;
     --indexer)                indexer="$2"; mark_flag SVPCHAIN_INDEXER;           shift 2 ;;
     --mcp-endpoint)           mcp_endpoint="$2"; mark_flag SVPCHAIN_MCP_ENDPOINT;   shift 2 ;;
+    --assistant-provider)     assistant_provider="$2"; mark_flag SVPCHAIN_ASSISTANT_PROVIDER; shift 2 ;;
+    --assistant-base-url)     assistant_base_url="$2"; mark_flag SVPCHAIN_ASSISTANT_BASE_URL; shift 2 ;;
+    --assistant-model)        assistant_model="$2"; mark_flag SVPCHAIN_ASSISTANT_MODEL;       shift 2 ;;
     --public-url)             public_url="$2"; mark_flag SVPCHAIN_PERPS_AGENT_PUBLIC_URL;  shift 2 ;;
     --operator-capabilities)  operator_capabilities="$2"; mark_flag SVPCHAIN_OPERATOR_CAPABILITIES; shift 2 ;;
     --operator-metadata)      operator_metadata="$2"; mark_flag SVPCHAIN_OPERATOR_METADATA; shift 2 ;;
@@ -455,6 +502,13 @@ EOF
 [mcp]
 endpoint = "${mcp_endpoint}"
 EOF
+  if [[ -n "${assistant_provider}${assistant_base_url}${assistant_model}" ]]; then
+    echo ""
+    echo "[assistant]"
+    [[ -n "$assistant_provider" ]] && echo "provider = \"${assistant_provider}\""
+    [[ -n "$assistant_base_url" ]] && echo "base_url = \"${assistant_base_url}\""
+    [[ -n "$assistant_model"    ]] && echo "model    = \"${assistant_model}\""
+  fi
   cat <<EOF
 
 [cache]
@@ -471,6 +525,16 @@ EOF
   # Explicit, because the block above ends on a `[[ … ]] && echo` whose false
   # branch would otherwise be this function's exit status — and under `set -e`
   # the `render_agent_toml > file` call site would exit the script silently.
+  return 0
+}
+
+# render_assistant_env — emit the env file carrying the model API key. Written
+# only when a key is configured; see the uninstall of a stale one at the ship
+# step, which is what makes unsetting the key actually turn the skill off.
+render_assistant_env() {
+  echo "# Auto-generated by scripts/deploy.sh — do not edit by hand."
+  [[ -n "$anthropic_api_key" ]] && echo "ANTHROPIC_API_KEY=${anthropic_api_key}"
+  [[ -n "$openai_api_key"    ]] && echo "OPENAI_API_KEY=${openai_api_key}"
   return 0
 }
 
@@ -500,6 +564,13 @@ render_compose_yaml() {
       - ${install_dir}/agent.toml:/etc/${AGENT_NAME}/agent.toml:ro
       - ${install_dir}/data:/var/lib/${AGENT_NAME}
 EOF
+  # env_file rather than `environment:`, so the key is never a literal in a
+  # generated file that --print-compose will happily echo.
+  if [[ -n "${anthropic_api_key}${openai_api_key}" ]]; then
+    echo "    env_file:"
+    echo "      - ${install_dir}/assistant.env"
+  fi
+  return 0
 }
 
 require_install_args() {
@@ -859,7 +930,8 @@ if [[ "$mode" == "print-env" ]]; then
     SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
     SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
     SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
-    SVPCHAIN_MCP_ENDPOINT
+    SVPCHAIN_MCP_ENDPOINT SVPCHAIN_ANTHROPIC_API_KEY SVPCHAIN_OPENAI_API_KEY
+    SVPCHAIN_ASSISTANT_PROVIDER SVPCHAIN_ASSISTANT_BASE_URL SVPCHAIN_ASSISTANT_MODEL
     SVPCHAIN_MARKETS_REFRESH
     SVPCHAIN_DEPOSIT_MAX_USDC SVPCHAIN_WITHDRAW_MAX_USDC
     SVPCHAIN_TRANSFER_MAX_USDC SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
@@ -872,7 +944,8 @@ if [[ "$mode" == "print-env" ]]; then
     "$agent_chain_id" "$agent_chain_rest"
     "$operator_capabilities" "$operator_metadata"
     "$price_amount" "$price_unit"
-    "$mcp_endpoint"
+    "$mcp_endpoint" "$anthropic_api_key" "$openai_api_key"
+    "$assistant_provider" "$assistant_base_url" "$assistant_model"
     "$markets_refresh"
     "$deposit_max" "$withdraw_max"
     "$transfer_max" "$daily_withdraw_cap"
@@ -901,7 +974,8 @@ if [[ "$mode" == "print-env" ]]; then
     # from "the command substitution returned nothing". Trimmed but NOT
     # validated: a malformed key should still be diagnosable here rather than
     # aborting the one mode you would reach for to diagnose it.
-    if [[ "$name" == "SVPCHAIN_PERPS_AGENT_OWNER_KEY" ]]; then
+    case "$name" in SVPCHAIN_PERPS_AGENT_OWNER_KEY|SVPCHAIN_ANTHROPIC_API_KEY|SVPCHAIN_OPENAI_API_KEY) _secret=1 ;; *) _secret=0 ;; esac
+    if [[ "$_secret" == "1" ]]; then
       value="$(printf '%s' "$value" | tr -d '[:space:]')"
       if [[ -n "$value" ]]; then value="set (${#value} chars)"; else value="unset"; fi
     fi
@@ -1034,10 +1108,19 @@ trap 'rm -rf "$stage_dir"' EXIT
 
 render_agent_toml   > "$stage_dir/agent.toml"
 render_compose_yaml > "$stage_dir/docker-compose.yml"
+if [[ -n "${anthropic_api_key}${openai_api_key}" ]]; then
+  render_assistant_env > "$stage_dir/assistant.env"
+fi
 chmod 600 "$stage_dir"/*
 chmod 755 "$stage_dir"
 
 remote_exec "mkdir -p $install_dir $install_dir/data"
+# ★ rsync runs without --delete, so a key removed from the config would leave
+# the old assistant.env in place and the skill quietly still enabled. Clearing
+# it here is what makes unsetting the key turn the assistant off.
+if [[ -z "${anthropic_api_key}${openai_api_key}" ]]; then
+  remote_exec "rm -f $install_dir/assistant.env"
+fi
 # The trailing slash on the source is load-bearing: without it rsync creates
 # $install_dir/<staging-dir-name>/ and the agent keeps running against its old
 # agent.toml, with nothing anywhere reporting an error.

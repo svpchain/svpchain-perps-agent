@@ -577,3 +577,70 @@ func TestDeployJumpBoxReachesEveryRemoteCall(t *testing.T) {
 		t.Errorf("preflight does not report the jump box:\n%s", out)
 	}
 }
+
+// ★ The model API key is the one secret this deploy ships to the host, so the
+// places it must NOT appear are worth pinning rather than trusting to review.
+//
+// agent.toml is rendered, rsynced, and printable with --print-config;
+// docker-compose.yml is generated and printed the same way. The key belongs in
+// neither. It reaches the container through a 0600 env file referenced by
+// compose, which names the path but never the value.
+func TestModelAPIKeyNeverReachesRenderedFiles(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	const secret = "sk-this-value-must-never-be-printed"
+
+	// Both provider keys, since either can be the one configured.
+	for _, mode := range []string{"--print-config", "--print-compose", "--print-env"} {
+		t.Run(strings.TrimPrefix(mode, "--"), func(t *testing.T) {
+			cmd := exec.Command(script, "--no-config", mode, "--host", "www@agent.example.com")
+			cmd.Env = append(os.Environ(),
+				"SVPCHAIN_ANTHROPIC_API_KEY="+secret+"-anthropic",
+				"SVPCHAIN_OPENAI_API_KEY="+secret+"-openai")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", mode, err, out)
+			}
+			if strings.Contains(string(out), secret) {
+				t.Errorf("%s printed the model API key", mode)
+			}
+		})
+	}
+}
+
+// The other half: with a key configured, compose must actually load the env
+// file, or the skill is silently off on the deployed host.
+func TestComposeLoadsTheAssistantEnvFileOnlyWhenAKeyIsSet(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	run := func(t *testing.T, key string) string {
+		t.Helper()
+		cmd := exec.Command(script, "--no-config", "--print-compose", "--host", "www@agent.example.com")
+		cmd.Env = append(os.Environ(), "SVPCHAIN_ANTHROPIC_API_KEY="+key)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("print-compose: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+
+	if got := run(t, "sk-ant-configured"); !strings.Contains(got, "env_file:") ||
+		!strings.Contains(got, "assistant.env") {
+		t.Errorf("a configured key produced no env_file entry:\n%s", got)
+	}
+	if got := run(t, ""); strings.Contains(got, "assistant.env") {
+		t.Errorf("compose references assistant.env with no key configured:\n%s", got)
+	}
+}

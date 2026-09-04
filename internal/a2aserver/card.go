@@ -90,6 +90,23 @@ var skillMetas = []skillMeta{
 		},
 	},
 	{
+		id:   toolbridge.SkillAssistant,
+		name: "SVP-Chain Assistant",
+		desc: "Ask a question in plain English and get an answer assembled from several " +
+			"reads: positions, orders, fills, PnL, funding and market data. The agent " +
+			"plans which tools to call, runs them as you, and reports what it found. It " +
+			"can build an unsigned transaction for you to review, but it cannot sign or " +
+			"submit one, and it will not move a transfer cap. Requires a bearer from the " +
+			"svpchain-auth skill; served only where the operator has configured it. " +
+			"Prefer a direct tool call when you already know which one you want — it is " +
+			"faster, cheaper and typed.",
+		tags: []string{"assistant", "natural-language", "planning", "multi-tool"},
+		examples: []string{
+			`{"skill":"svpchain-assistant","tool":"ask","args":{"question":"how exposed am I to BTC right now?"},"bearer":"…"}`,
+			`{"skill":"svpchain-assistant","tool":"ask","args":{"question":"which of my open orders are furthest from the market?"},"bearer":"…"}`,
+		},
+	},
+	{
 		id:   toolbridge.SkillMeta,
 		name: "SVP-Chain Agent Self-Description",
 		desc: "Discovery: list_tools returns every tool this agent serves, with the skill " +

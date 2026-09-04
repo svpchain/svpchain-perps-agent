@@ -8,6 +8,7 @@ import (
 
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 )
 
 // AuthResolver maps an A2A request onto the tenant/IP/session context the MCP
@@ -35,8 +36,8 @@ func (r *AuthResolver) Attach(ctx context.Context, execCtx *a2asrv.ExecutorConte
 	if execCtx.ContextID != "" {
 		ctx = tools.WithSessionID(ctx, execCtx.ContextID)
 	}
-	if ip := headerValue(execCtx, "x-forwarded-for"); ip != "" {
-		ctx = tools.WithIP(ctx, strings.TrimSpace(strings.Split(ip, ",")[0]))
+	if ip := clientIP(execCtx); ip != "" {
+		ctx = tools.WithIP(ctx, ip)
 	}
 
 	bearer := bearerFromHeader(execCtx)
@@ -46,6 +47,17 @@ func (r *AuthResolver) Attach(ctx context.Context, execCtx *a2asrv.ExecutorConte
 	if bearer == "" && r.Sessions != nil && execCtx.ContextID != "" {
 		bearer = r.Sessions.Lookup(execCtx.ContextID)
 	}
+
+	// The raw bearer, for operations that call the remote MCP server as this
+	// caller rather than resolving it to a local tenant. Stamped even when it
+	// is empty, so an unauthenticated request reaches those operations as
+	// nobody and is refused by the server rather than by absence.
+	ctx = mcpclient.WithCaller(ctx, mcpclient.Identity{
+		Bearer:    bearer,
+		ContextID: execCtx.ContextID,
+		ClientIP:  clientIP(execCtx),
+	})
+
 	if bearer == "" || r.Tenants == nil {
 		return ctx
 	}
@@ -77,4 +89,13 @@ func headerValue(execCtx *a2asrv.ExecutorContext, key string) string {
 		return ""
 	}
 	return vals[0]
+}
+
+// clientIP is the caller's address, taken from X-Forwarded-For's first hop.
+func clientIP(execCtx *a2asrv.ExecutorContext) string {
+	ip := headerValue(execCtx, "x-forwarded-for")
+	if ip == "" {
+		return ""
+	}
+	return strings.TrimSpace(strings.Split(ip, ",")[0])
 }

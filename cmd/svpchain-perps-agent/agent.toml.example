@@ -24,6 +24,35 @@ indexer_base_url = "http://127.0.0.1:3002"
 endpoint = "https://dex-mcp-testnet.svpchain.org/"
 # call_timeout = "30s"
 
+# The model-driven skill: a plain-English question answered by planning calls
+# over the MCP catalog. Served only when ANTHROPIC_API_KEY is in the agent's
+# environment AND [mcp] endpoint is set; without both, the skill is absent and
+# the agent card does not advertise it.
+#
+# There is deliberately no api_key here. This file is rendered by the deploy
+# script, rsynced to the host and printable with --print-config, so the key
+# comes from the environment instead.
+[assistant]
+# provider selects the model API format: "anthropic" (default) for the native
+# Messages API, or "openai" for the chat-completions format that OpenAI,
+# DeepSeek and most local runtimes serve. The key follows: ANTHROPIC_API_KEY or
+# OPENAI_API_KEY.
+#
+# base_url points a provider at a particular vendor. It is ordinary config, not
+# a secret. With provider = "openai" and base_url = "https://api.deepseek.com",
+# the planner runs on DeepSeek.
+#
+# ★ Only the anthropic provider caches the tool catalog. The chat-completions
+# format has no cache breakpoint, so on that path the 30-odd tool schemas are
+# re-billed on every turn of every planning loop. That is the standing cost of
+# provider portability.
+# provider       = "anthropic"
+# base_url       = ""
+# model          = "claude-opus-5"
+# max_iterations = 8
+# max_tool_calls = 24
+# timeout        = "90s"
+
 # Caps on funds movements, in human USDC. Zero disables a check.
 [limits]
 deposit_max_usdc        = 1000

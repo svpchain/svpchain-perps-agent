@@ -47,6 +47,55 @@ type Config struct {
 	Limits LimitsConfig `toml:"limits"`
 	Fee    FeeConfig    `toml:"fee"`
 	MCP    MCPConfig    `toml:"mcp"`
+
+	Assistant AssistantConfig `toml:"assistant"`
+}
+
+// AssistantConfig tunes the model-driven skill, which answers a plain-English
+// question by planning calls over the MCP catalog.
+//
+// The skill is served only when an Anthropic API key is present in the
+// environment AND mcp.endpoint is set — it is the one family that reaches
+// outside this deployment for something other than chain data, and it costs
+// money per call, so it is opt-in by configuration rather than on by default.
+// The card follows: an agent without both simply does not advertise it.
+//
+// ★ There is deliberately no api_key field. The deploy script renders this
+// file and rsyncs it to the remote host, so a key here would be written to
+// disk in two places and read back by --print-config. It comes from
+// ANTHROPIC_API_KEY in the process environment, which is also where the SDK
+// looks by default.
+type AssistantConfig struct {
+	// Provider selects the model API format: "anthropic" for the native
+	// Messages API, "openai" for the chat-completions format that OpenAI,
+	// DeepSeek and most local runtimes serve. Empty means anthropic.
+	//
+	// The key comes from ANTHROPIC_API_KEY or OPENAI_API_KEY to match, so
+	// switching provider switches which variable is read.
+	Provider string `toml:"provider"`
+
+	// BaseURL overrides the provider's endpoint. Ordinary configuration, not
+	// a secret — it is a public address, and seeing it in a config dump is a
+	// diagnostic rather than a leak.
+	//
+	// It is how one provider serves several vendors: point the openai
+	// provider at https://api.deepseek.com for DeepSeek, or at a local
+	// runtime. Empty means each provider's own default.
+	BaseURL string `toml:"base_url"`
+
+	// Model is the model id. Empty means the package default on the
+	// anthropic provider; required on openai, which spans vendors that share
+	// no model names.
+	Model string `toml:"model"`
+
+	// MaxIterations bounds trips through the planning loop; MaxToolCalls
+	// bounds tool calls across one question. One model turn can request
+	// several tools, so neither bounds the other. Zero means the defaults.
+	MaxIterations int `toml:"max_iterations"`
+	MaxToolCalls  int `toml:"max_tool_calls"`
+
+	// Timeout is the wall clock for one question, planning included.
+	Timeout Duration `toml:"timeout"`
 }
 
 // MCPConfig points the agent at the remote MCP server that implements its
@@ -166,7 +215,19 @@ func (c *Config) Validate() error {
 	if err := c.Fee.validate(); err != nil {
 		return err
 	}
-	return nil
+	return c.Assistant.validate()
+}
+
+// validate rejects a provider name that is not one of the two. Left to default
+// silently, a typo would run the wrong API against the wrong key variable and
+// fail at the first question rather than at boot.
+func (a *AssistantConfig) validate() error {
+	switch a.Provider {
+	case "", "anthropic", "openai":
+		return nil
+	default:
+		return fmt.Errorf("assistant.provider %q is not one of anthropic, openai", a.Provider)
+	}
 }
 
 // Default fee applied to non-CLOB txs when the [fee] section is absent.
