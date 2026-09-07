@@ -38,11 +38,14 @@ func TestBuildRegisterPassesChainValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	bond := sdk.Coin{Denom: "asvp", Amount: sdkmath.NewInt(5_000_000)}
-	msg := agentchain.BuildRegister(addr, wantRegister(), bond)
+	// The id is resolved against the chain and passed in; a new agent's is
+	// index-suffixed, which is exactly what the unsuffixed form is not.
+	agentID := agenttypes.AgentIdFromOwnerIndex(addr, 1)
+	msg := agentchain.BuildRegister(addr, agentID, wantRegister(), bond)
 
 	require.NoError(t, msg.ValidateBasic())
 	require.Equal(t, addrStr, msg.Owner)
-	require.Equal(t, agenttypes.DIDPrefix+addrStr, msg.AgentId)
+	require.Equal(t, agentID, msg.AgentId)
 	require.Equal(t, bond, msg.InitialBond)
 	require.Equal(t, wantRegister().Pricing, msg.Pricing)
 }
@@ -56,7 +59,7 @@ func TestBuildRegisterWithoutPricingFailsValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	bond := sdk.Coin{Denom: "asvp", Amount: sdkmath.NewInt(5_000_000)}
-	require.Error(t, agentchain.BuildRegister(addr, want(), bond).ValidateBasic())
+	require.Error(t, agentchain.BuildRegister(addr, agenttypes.AgentIdFromOwnerIndex(addr, 1), want(), bond).ValidateBasic())
 }
 
 // An update keeps the identity fields of the existing record.
@@ -148,11 +151,28 @@ func TestDrift(t *testing.T) {
 	})
 }
 
-func TestAgentIDDerivesFromOwner(t *testing.T) {
+// ★ The chain rejects an unsuffixed id for a NEW agent ("must include a
+// positive index") and keeps the form addressable only for agents registered
+// before indexes existed. This pins both halves, because deriving the id
+// locally from the owner address is exactly the bug that made a first
+// registration fail on a live chain.
+func TestLegacyAgentIDIsIndexZeroAndNotForNewAgents(t *testing.T) {
 	_, addrStr, err := owner.Generate()
 	require.NoError(t, err)
 	addr, err := sdk.AccAddressFromBech32(addrStr)
 	require.NoError(t, err)
-	require.Equal(t, agenttypes.DIDPrefix+addrStr, agentchain.AgentID(addr))
-	require.NoError(t, agenttypes.ValidateAgentId(agentchain.AgentID(addr)))
+
+	legacy := agentchain.LegacyAgentID(addr)
+	require.Equal(t, agenttypes.DIDPrefix+addrStr, legacy)
+	require.NoError(t, agenttypes.ValidateAgentId(legacy), "the legacy form must stay addressable")
+
+	_, index, err := agenttypes.ParseAgentId(legacy)
+	require.NoError(t, err)
+	require.Zero(t, index, "the unsuffixed form is allocation index zero")
+
+	allocated := agenttypes.AgentIdFromOwnerIndex(addr, 1)
+	require.NotEqual(t, legacy, allocated, "a newly allocated id must not be the legacy form")
+	_, index, err = agenttypes.ParseAgentId(allocated)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, index)
 }

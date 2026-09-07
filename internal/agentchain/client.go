@@ -19,6 +19,7 @@ package agentchain
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,6 +28,7 @@ import (
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/mcpcodec"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 )
 
@@ -46,6 +48,13 @@ type Client struct {
 type agentQuerier interface {
 	Agent(ctx context.Context, in *agenttypes.QueryAgent, opts ...grpc.CallOption) (*agenttypes.QueryAgentResponse, error)
 	Params(ctx context.Context, in *agenttypes.QueryParams, opts ...grpc.CallOption) (*agenttypes.QueryParamsResponse, error)
+
+	// AgentsByOwner and NextAgentIndex are what an owner's identity now takes.
+	// An agent id used to follow from the owner address alone; the chain since
+	// grew per-owner allocation indexes, so which agent an owner means, and
+	// which id a new one gets, are both questions only the chain can answer.
+	AgentsByOwner(ctx context.Context, in *agenttypes.QueryAgentsByOwner, opts ...grpc.CallOption) (*agenttypes.QueryAgentsByOwnerResponse, error)
+	NextAgentIndex(ctx context.Context, in *agenttypes.QueryNextAgentIndex, opts ...grpc.CallOption) (*agenttypes.QueryNextAgentIndexResponse, error)
 }
 
 // Dial connects to the chain carrying x/agent over gRPC. In a single-chain
@@ -92,6 +101,56 @@ func (c *Client) AgentByID(ctx context.Context, agentID string) (*agenttypes.Age
 		return nil, false, fmt.Errorf("agent.Query/Agent %s: %w", agentID, err)
 	}
 	return &resp.Agent, true, nil
+}
+
+// ResolveAgent decides which DID a registration run targets, and returns the
+// agent already registered under it when there is one.
+//
+// ★ This used to be a pure function of the owner address: AgentIdFromOwner.
+// The chain since grew per-owner allocation indexes, so a new agent's id is
+// did:svp:<owner>:<n> with n positive, and the old unsuffixed form is legacy —
+// still addressable for agents registered before the change, but rejected for
+// a new one. An id can therefore no longer be derived locally: which agent an
+// owner means, and which id the next one gets, are both chain state.
+//
+// The repo's model is still one owner key per agent (scripts/deploy.sh
+// --gen-owner-key refuses a second), so:
+//
+//   - no agents yet: take the id the chain says to allocate next, and register.
+//   - exactly one: that is this deployment's, whatever its index and even if
+//     its endpoint has since moved — which is the case an endpoint match would
+//     get wrong.
+//   - more than one: refuse. The owner has broken the one-key-one-agent model
+//     and nothing here can tell which agent is meant, so guessing would update
+//     the wrong registration.
+func (c *Client) ResolveAgent(ctx context.Context, ownerAddr sdk.AccAddress) (string, *agenttypes.Agent, bool, error) {
+	owned, err := c.agents.AgentsByOwner(ctx, &agenttypes.QueryAgentsByOwner{Owner: ownerAddr.String()})
+	if err != nil {
+		return "", nil, false, fmt.Errorf("agent.Query/AgentsByOwner %s: %w", ownerAddr, err)
+	}
+
+	switch len(owned.Agents) {
+	case 0:
+		next, err := c.agents.NextAgentIndex(ctx, &agenttypes.QueryNextAgentIndex{Owner: ownerAddr.String()})
+		if err != nil {
+			return "", nil, false, fmt.Errorf("agent.Query/NextAgentIndex %s: %w", ownerAddr, err)
+		}
+		if next.AgentId == "" {
+			return "", nil, false, fmt.Errorf("chain returned an empty next agent id for %s", ownerAddr)
+		}
+		return next.AgentId, nil, false, nil
+	case 1:
+		a := owned.Agents[0]
+		return a.AgentId, &a, true, nil
+	default:
+		ids := make([]string, 0, len(owned.Agents))
+		for _, a := range owned.Agents {
+			ids = append(ids, a.AgentId)
+		}
+		return "", nil, false, fmt.Errorf(
+			"owner %s controls %d agents (%s); this tool registers one agent per owner key and cannot tell which is meant",
+			ownerAddr, len(owned.Agents), strings.Join(ids, ", "))
+	}
 }
 
 // Account returns the signer's account number and sequence.

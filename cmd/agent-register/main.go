@@ -192,8 +192,9 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 	}
 	defer client.Close()
 
-	agentID := agentchain.AgentID(ownerAddr)
-	existing, found, err := client.AgentByID(ctx, agentID)
+	// Which DID this run targets is chain state, not something derivable from
+	// the owner address: new agents get a positive allocation index.
+	agentID, existing, found, err := client.ResolveAgent(ctx, ownerAddr)
 	if err != nil {
 		return err
 	}
@@ -210,7 +211,7 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		msg = agentchain.BuildRegister(ownerAddr, want, bond)
+		msg = agentchain.BuildRegister(ownerAddr, agentID, want, bond)
 		action = "register"
 		fmt.Fprintf(w, "not registered — registering %s\n", agentID)
 		fmt.Fprintf(w, "  bond     %s\n", bond)

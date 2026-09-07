@@ -122,6 +122,16 @@ func (r *restClient) Agent(ctx context.Context, in *agenttypes.QueryAgent, _ ...
 	return out, r.get(ctx, "/dydxprotocol/agent/agent/"+url.PathEscape(in.AgentId), out)
 }
 
+func (r *restClient) AgentsByOwner(ctx context.Context, in *agenttypes.QueryAgentsByOwner, _ ...grpc.CallOption) (*agenttypes.QueryAgentsByOwnerResponse, error) {
+	out := &agenttypes.QueryAgentsByOwnerResponse{}
+	return out, r.get(ctx, "/dydxprotocol/agent/agents_by_owner/"+url.PathEscape(in.Owner), out)
+}
+
+func (r *restClient) NextAgentIndex(ctx context.Context, in *agenttypes.QueryNextAgentIndex, _ ...grpc.CallOption) (*agenttypes.QueryNextAgentIndexResponse, error) {
+	out := &agenttypes.QueryNextAgentIndexResponse{}
+	return out, r.get(ctx, "/dydxprotocol/agent/next_agent_index/"+url.PathEscape(in.Owner), out)
+}
+
 func (r *restClient) Params(ctx context.Context, _ *agenttypes.QueryParams, _ ...grpc.CallOption) (*agenttypes.QueryParamsResponse, error) {
 	out := &agenttypes.QueryParamsResponse{}
 	return out, r.get(ctx, "/dydxprotocol/agent/params", out)

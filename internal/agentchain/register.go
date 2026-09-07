@@ -24,27 +24,33 @@ type Desired struct {
 	Pricing *agenttypes.Pricing
 }
 
-// AgentID returns the DID this owner key registers under.
+// LegacyAgentID returns the pre-index DID form for an owner: did:svp:<owner>,
+// which the chain treats as allocation index zero.
 //
-// There is no choice involved: the id embeds the owner address, so the id
-// follows from the key (see internal/owner). A verifier off this chain derives
-// the owner's address straight back out of the DID, which is what makes it
-// verifiable with nothing but the library.
-func AgentID(ownerAddr sdk.AccAddress) string {
+// ★ Not what a new registration uses. The chain rejects an unsuffixed id for a
+// new agent ("must include a positive index") and only keeps the form
+// addressable so agents registered before indexes existed still resolve. Use
+// Client.ResolveAgent, which asks the chain. This is retained for reading such
+// an agent back by hand.
+func LegacyAgentID(ownerAddr sdk.AccAddress) string {
 	return agenttypes.AgentIdFromOwner(ownerAddr)
 }
 
 // BuildRegister assembles the first registration. The owner account is the
 // agent's whole identity: the chain no longer carries a separate operator or
 // public key, so nothing beyond the owner address goes into the message.
+// agentID is passed in rather than derived: since the chain grew per-owner
+// allocation indexes, only the chain knows which id a new agent gets. See
+// Client.ResolveAgent.
 func BuildRegister(
 	ownerAddr sdk.AccAddress,
+	agentID string,
 	want Desired,
 	bond sdk.Coin,
 ) *agenttypes.MsgRegisterAgent {
 	return &agenttypes.MsgRegisterAgent{
 		Owner:          ownerAddr.String(),
-		AgentId:        AgentID(ownerAddr),
+		AgentId:        agentID,
 		Endpoint:       want.Endpoint,
 		CapabilityHash: want.CapabilityHash,
 		Capabilities:   want.Capabilities,
