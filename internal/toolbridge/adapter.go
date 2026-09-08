@@ -136,3 +136,10 @@ func (r *Registry) BySkill() map[string][]string {
 	}
 	return out
 }
+
+// AddOpForTest registers a bare operation. It exists so tests in other
+// packages can put a stand-in on the registry without a model or an MCP
+// server behind it; nothing in the binary calls it.
+func (r *Registry) AddOpForTest(skill, tool string, call func(context.Context, json.RawMessage) (any, error)) {
+	r.add(skill, tool, Bound{Call: call})
+}

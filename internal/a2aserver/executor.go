@@ -16,10 +16,16 @@ import (
 
 // Executor answers A2A tasks by dispatching them into the operation registry.
 //
-// Deliberately not LLM-driven. A request names a skill, a tool, and its
-// arguments as JSON, and the executor dispatches it — pricing an order or
-// building a tx payload is a lookup, and putting a model in front of it would
-// add cost, latency, and a failure mode for no gain.
+// Dispatch is a lookup, not a model call. A request names a skill, a tool and
+// its arguments as JSON, and the executor dispatches it — pricing an order or
+// building a tx payload has one right answer, and putting a model in front of
+// that would add cost, latency and a failure mode for no gain.
+//
+// The one exception is a message that is not an envelope at all. Free text is
+// routed to the assistant skill where a binary serves one, because a question
+// in English is the natural thing for another agent to send and answering it
+// is exactly what that skill is for. A caller that names its tool never
+// reaches a model.
 type Executor struct {
 	// market backs the legacy {"skill":…,"query":…} form. Nil on an agent that
 	// does not register the market-data family, which then refuses that path
@@ -29,6 +35,9 @@ type Executor struct {
 	registry *toolbridge.Registry
 	authr    *AuthResolver
 }
+
+// assistantTool is the operation free text is routed to.
+const assistantTool = "ask"
 
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
@@ -83,10 +92,23 @@ func (e *Executor) handle(ctx context.Context, execCtx *a2asrv.ExecutorContext) 
 
 	var req Request
 	if err := json.Unmarshal([]byte(raw), &req); err != nil {
-		return "", fmt.Errorf("request must be JSON naming a skill: %w", err)
+		// ★ Plain text is not a malformed envelope, it is the most natural
+		// thing one agent sends another — and this agent grew a skill whose
+		// entire job is answering it. Refusing it while advertising that skill
+		// made us the one agent in the fleet that cannot take a question.
+		//
+		// So an unparseable message becomes a question for the assistant, when
+		// one is configured. It costs a model call, which the operator opted
+		// into by configuring it, and the planner's own budgets bound what one
+		// question can spend.
+		if q, ok := e.asAssistantQuestion(raw); ok {
+			req = q
+		} else {
+			return "", fmt.Errorf("%s: %w", e.envelopeHelp(), err)
+		}
 	}
 	if req.Skill == "" {
-		return "", fmt.Errorf("no skill named")
+		return "", fmt.Errorf("no skill named — %s", e.envelopeHelp())
 	}
 
 	// Legacy read-layer form: {"skill":"svpchain-market-data","query":...}.
@@ -124,6 +146,36 @@ func (e *Executor) handle(ctx context.Context, execCtx *a2asrv.ExecutorContext) 
 		return "", fmt.Errorf("encode result: %w", err)
 	}
 	return string(b), nil
+}
+
+// asAssistantQuestion turns free text into a call on the assistant skill, when
+// this binary serves one. Empty text is not a question.
+func (e *Executor) asAssistantQuestion(raw string) (Request, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return Request{}, false
+	}
+	op, ok := e.registry.Lookup(assistantTool)
+	if !ok || op.Skill != toolbridge.SkillAssistant {
+		return Request{}, false
+	}
+	args, err := json.Marshal(toolbridge.AskInput{Question: raw})
+	if err != nil {
+		return Request{}, false
+	}
+	return Request{Skill: op.Skill, Tool: op.Tool, Args: args}, true
+}
+
+// envelopeHelp tells a caller how to phrase a request, and says whether plain
+// English is an option here. A refusal that does not say what would have
+// worked leaves the caller with nothing to try.
+func (e *Executor) envelopeHelp() string {
+	help := `a request must be JSON naming a skill and tool, e.g. ` +
+		`{"skill":"svpchain-market-data","tool":"list_markets"}. ` +
+		`Call {"skill":"svpchain-meta","tool":"list_tools"} to discover every tool and its arguments`
+	if _, ok := e.registry.Lookup(assistantTool); ok {
+		return help + `. This agent also answers plain-English questions: send the question as the message text, with a bearer from svpchain-auth for anything account-scoped`
+	}
+	return help
 }
 
 func (e *Executor) handleMarketData(ctx context.Context, req Request) (string, error) {
