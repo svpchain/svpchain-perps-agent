@@ -673,3 +673,52 @@ func TestComposeLoadsTheAssistantEnvFileOnlyWhenAKeyIsSet(t *testing.T) {
 		t.Errorf("compose references assistant.env with no key configured:\n%s", got)
 	}
 }
+
+// ★ Every function the script calls must be defined.
+//
+// This exists because one was not. A refactor that shrank render_agent_toml
+// spliced from its opening line to the next function's comment, and swallowed
+// render_assistant_env in between. The call site survived, so a deploy with a
+// model key configured died at the staging step with "command not found" —
+// and only there, because the call is guarded by the key being set, so every
+// keyless deploy and every --print-* mode kept working. `bash -n` does not
+// catch it either; an undefined function is a runtime error.
+//
+// Scoped to render_* rather than every word, because those are the ones this
+// script defines and calls by name, and a narrow check that is reliable beats
+// a broad one that needs an allowlist of every external command.
+func TestEveryRenderFunctionCalledIsDefined(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(script)
+	if err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+	src := string(body)
+
+	defined := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^(render_[a-z_]+)\(\) \{`).FindAllStringSubmatch(src, -1) {
+		defined[m[1]] = true
+	}
+	if len(defined) == 0 {
+		t.Fatal("parsed no render_* definitions; this test would pass vacuously")
+	}
+
+	called := map[string]bool{}
+	for _, m := range regexp.MustCompile(`\brender_[a-z_]+\b`).FindAllString(src, -1) {
+		called[m] = true
+	}
+
+	for name := range called {
+		if !defined[name] {
+			t.Errorf("%s is referenced but never defined", name)
+		}
+	}
+	for name := range defined {
+		if !called[name] {
+			t.Errorf("%s is defined but never called", name)
+		}
+	}
+}
