@@ -1102,11 +1102,19 @@ step "On remote: smoke test (healthz + agent card over loopback via ssh)"
 if [[ "$dry_run" == "1" ]]; then
   info "[dry-run] would ssh $host curl -> http://127.0.0.1:${AGENT_PORT}/healthz + agent card"
 else
-  # The agent dials the chain gRPC and finishes an initial markets-cache
-  # refresh before serving; give it a few seconds to come up.
+  # ★ Every ssh here carries a ConnectTimeout. Without one, a connection that
+  # goes away mid-deploy — a VPN dropping, typically — hangs each attempt for
+  # the OS TCP timeout rather than the 5s the curl suggests, and ten of those
+  # is a deploy that looks stuck rather than one that fails.
+  probe="$ssh_cmd -o ConnectTimeout=10"
+
+  # The agent checks the MCP server's catalog before it serves, so give it a
+  # few seconds. It refuses to start if that server is unreachable from the
+  # container: every operation it advertises is a call there, so an agent that
+  # cannot reach it has nothing to answer with.
   healthy=""
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    code=$($ssh_cmd "$host" \
+    code=$($probe "$host" \
       "curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:${AGENT_PORT}/healthz" \
       2>/dev/null || echo 000)
     if [[ "$code" == "200" ]]; then healthy="1"; break; fi
@@ -1115,11 +1123,13 @@ else
   if [[ -z "$healthy" ]]; then
     info "healthz on :${AGENT_PORT} did not answer 200. Check logs with:"
     info "  ssh${jump_box:+ -J $jump_box} $host 'docker logs $AGENT_NAME --tail=80'"
-    info "Common cause: the gRPC/RPC endpoints in agent.toml are not reachable"
-    info "from inside the container."
+    info "Most likely: the container cannot reach ${mcp_endpoint}, which it"
+    info "checks at startup and refuses to serve without. The container uses"
+    info "host networking, so test it the same way from the host:"
+    info "  ssh${jump_box:+ -J $jump_box} $host 'curl -sS -o /dev/null -w \"%{http_code}\n\" ${mcp_endpoint}'"
     fail "smoke test failed for $AGENT_NAME"
   fi
-  skills=$($ssh_cmd "$host" \
+  skills=$($probe "$host" \
     "curl -sS --max-time 5 http://127.0.0.1:${AGENT_PORT}/.well-known/agent-card.json" \
     2>/dev/null | { command -v jq >/dev/null 2>&1 && jq -r '.skills | length' || cat; } || echo "")
   if [[ "$skills" =~ ^[0-9]+$ ]]; then
