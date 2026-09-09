@@ -90,22 +90,15 @@ SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
 # every command would then die on that instead of running keyless as intended.
 #SVPCHAIN_PERPS_AGENT_OWNER_KEY="$(cat "$HOME/.config/svpchain-perps-agent/owner.key")"
 
-# The registry chain's gRPC port as reachable from THIS machine, used only by
-# --register and only when the REST route below is unset. Registration is
-# signed and broadcast here, not on the deploy host. Defaults to
-# 127.0.0.1:9090, which suits a local dev node and little else.
+# The registry chain's Cosmos REST API (the gRPC-gateway, typically :1317), as
+# reachable from THIS machine. Required by --register: the transaction is
+# signed and broadcast here, not on the deploy host. When only the deploy host
+# can see the node, tunnel it first and point this at the local end:
+#   ssh -N -L 1317:127.0.0.1:1317 <deploy host>
 #
-# Formerly SVPCHAIN_GRPC_ADDR, back when it named the address the deployed
-# container dialled. The container dials no chain now. The old name is still
-# honoured, with a warning.
-#SVPCHAIN_REGISTER_GRPC="grpc.testnet.svpchain.org:443"
-
-# Or reach the chain carrying x/agent over its Cosmos REST API instead (the
-# gRPC-gateway, typically :1317), again from THIS machine. Set, this is the
-# route and SVPCHAIN_REGISTER_GRPC is not consulted. A node's REST port is far
-# more often reachable than its gRPC port. When the deploy host is the only
-# thing that can see the node, tunnel it first and point this at the local
-# end:  ssh -N -L 1317:127.0.0.1:1317 <deploy host>
+# There was a gRPC route beside this one. It only ever suited a local dev node,
+# and left unset it turned "you have not said how to reach the chain" into a
+# dial timeout against localhost.
 #SVPCHAIN_AGENT_CHAIN_REST="http://127.0.0.1:1317"
 
 # Capability tags the registration is indexed by, and free-form metadata.

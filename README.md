@@ -177,20 +177,18 @@ Both drifts are otherwise silent. A stale capability hash makes verifiers read
 the agent as unverified while every process is healthy; a stale endpoint points
 them at a URL that may no longer answer.
 
-The transaction is broadcast from **your** machine, so it needs a chain
-endpoint reachable from there — one of:
+The transaction is broadcast from **your** machine, so it needs the registry
+chain's Cosmos REST API (the gRPC-gateway, typically `:1317`) reachable from
+there — `--agent-chain-rest` / `SVPCHAIN_AGENT_CHAIN_REST`. `--agent-chain-id`
+/ `SVPCHAIN_AGENT_CHAIN_ID` names the chain the signature commits to.
 
-- `--agent-chain-rest` / `SVPCHAIN_AGENT_CHAIN_REST`: the chain's Cosmos REST
-  API (the gRPC-gateway, typically `:1317`). A node's REST port is far more
-  often exposed than its gRPC port, so this is usually the one that works.
-  When x/agent lives on a chain other than the DEX chain, `--agent-chain-id` /
-  `SVPCHAIN_AGENT_CHAIN_ID` names it; unset, `--chain-id` signs.
-- `--register-grpc` / `SVPCHAIN_REGISTER_GRPC`: its gRPC port. `--grpc-addr`
-  is the container's view of the chain — typically a loopback address on the
-  remote host — and is only the right default for a local dev node.
+There was a gRPC route beside it, defaulting to a loopback address. It only
+ever suited a local dev node, and left unset it turned "you have not said how
+to reach the chain" into a dial timeout against localhost. A node's REST port
+is far more often exposed anyway.
 
-Set, the REST route wins. When only the deploy host can see the node, tunnel
-its REST port first and point the setting at the local end:
+When only the deploy host can see the node, tunnel its REST port first and
+point the setting at the local end:
 
 ```sh
 ssh -N -L 1317:127.0.0.1:1317 www@svpdev1.example.com   # -J bastion if there is one
@@ -204,11 +202,11 @@ agent some other way — over an ssh tunnel before DNS is live, say:
 
 ```sh
 SVPCHAIN_PERPS_AGENT_OWNER_KEY=… go run ./cmd/agent-register \
-  -url http://127.0.0.1:8082 -chain-id svp-2517-1 -grpc 127.0.0.1:9090 \
+  -url http://127.0.0.1:8082 -chain-id svp-2517-1 -rest http://127.0.0.1:1317 \
   -capabilities perps.trading,perps.market-data -price-amount 1000000
 ```
 
-`-rest http://127.0.0.1:1317` in place of `-grpc` takes the REST route; exactly
+The tool still accepts `-grpc 127.0.0.1:9090` in place of `-rest`; exactly
 one of the two is required. `-agent-chain-rest` / `-agent-chain-id` are
 accepted as aliases (the deploy script's flag names), and `-rest` / `-chain-id` default to
 `SVPCHAIN_AGENT_CHAIN_REST` and `SVPCHAIN_AGENT_CHAIN_ID` from the environment

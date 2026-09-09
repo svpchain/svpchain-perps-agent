@@ -141,23 +141,13 @@
 #                                  update when the card or the endpoint has
 #                                  moved since. Idempotent: an agent that is
 #                                  already current is left alone.
-#   --register-grpc <addr>         --register only, and only when
-#                                  --agent-chain-rest is unset. The registry
-#                                  chain's gRPC port as reachable from THIS
-#                                  machine — registration is signed and
-#                                  broadcast here, not on the deploy host.
-#                                  The default suits a local dev node and
-#                                  little else.
-#                                  SVPCHAIN_REGISTER_GRPC (127.0.0.1:9090)
-#                                  --grpc-addr / SVPCHAIN_GRPC_ADDR are the
-#                                  deprecated former names, still honoured.
-#   --agent-chain-rest <url>       --register only. Reach the chain carrying
-#                                  x/agent over its Cosmos REST API instead
-#                                  (the gRPC-gateway, typically :1317), from
-#                                  THIS machine. Set, it replaces the gRPC
-#                                  route above entirely. A node's REST port is
-#                                  far more often exposed than its gRPC port,
-#                                  which is why this exists.
+#   --agent-chain-rest <url>       --register only, and REQUIRED to register.
+#                                  The registry chain's Cosmos REST API (the
+#                                  gRPC-gateway, typically :1317), as reachable
+#                                  from THIS machine — registration is signed
+#                                  and broadcast here, not on the deploy host,
+#                                  so tunnel the port if only the deploy host
+#                                  can see the node.
 #                                  SVPCHAIN_AGENT_CHAIN_REST
 #   --bond <coin>                  --register only. Initial bond, e.g.
 #                                  5000000000000000000000asvp. Default: the
@@ -247,7 +237,7 @@ unset _i _j
 # Names the config file may set. Snapshotted before sourcing so anything the
 # caller already exported survives.
 readonly CONFIG_VARS=(
-  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR SVPCHAIN_REGISTER_GRPC
+  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_CHAIN_ID
   SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OWNER_KEY
   SVPCHAIN_AGENT_CHAIN_REST
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
@@ -312,14 +302,6 @@ if [[ -z "${SVPCHAIN_AGENT_CHAIN_ID:-}" && -n "${SVPCHAIN_CHAIN_ID:-}" ]]; then
   was_preset SVPCHAIN_CHAIN_ID && ENV_PRESET+="SVPCHAIN_AGENT_CHAIN_ID "
 fi
 
-# The same, for the endpoint SVPCHAIN_GRPC_ADDR used to name. It was the
-# address the deployed container dialled; the container dials no chain now, so
-# it decayed into a second name for the registration endpoint.
-if [[ -z "${SVPCHAIN_REGISTER_GRPC:-}" && -n "${SVPCHAIN_GRPC_ADDR:-}" ]]; then
-  warn "SVPCHAIN_GRPC_ADDR is the deprecated name for SVPCHAIN_REGISTER_GRPC; rename it in your config file"
-  SVPCHAIN_REGISTER_GRPC="$SVPCHAIN_GRPC_ADDR"
-  was_preset SVPCHAIN_GRPC_ADDR && ENV_PRESET+="SVPCHAIN_REGISTER_GRPC "
-fi
 
 # ---- args ------------------------------------------------------------------
 
@@ -387,20 +369,16 @@ dry_run="0"
 # the x/agent module's own MinBond, which is the right answer for almost
 # everyone.
 register_bond=""
-# --register only, and only when $agent_chain_rest is unset. The registry
-# chain's gRPC port as reachable from THIS machine — registration is signed and
-# broadcast here, not on the deploy host — so a public gRPC port, or the local
-# end of an ssh tunnel. The default is right for a local dev chain and wrong
-# for most else.
+# --register only, and the only route there is. The registry chain's Cosmos
+# REST API as reachable from THIS machine — registration is signed and
+# broadcast here, not on the deploy host — so a public gateway, or the local
+# end of an ssh tunnel.
 #
-# ★ This absorbed SVPCHAIN_GRPC_ADDR, which was the address the deployed
-# CONTAINER dialled. The container dials no chain now, so that setting had
-# decayed into a second name for this one, supplying only its default.
-register_grpc="${SVPCHAIN_REGISTER_GRPC:-127.0.0.1:9090}"
-# --register only. The chain carrying x/agent over its Cosmos REST API, again
-# as reachable from THIS machine. Set, it is the route: $register_grpc is not
-# consulted. $agent_chain_id names that chain when it is not the DEX chain;
-# empty means the gRPC route is used instead.
+# ★ There was a gRPC route beside this one, defaulting to 127.0.0.1:9090. It
+# only ever suited a local dev node, and left unset it turned "you have not
+# said how to reach the chain" into a dial timeout against localhost. A node's
+# REST port is far more often exposed than its gRPC port, so one route, no
+# default, and a refusal that says what is missing.
 agent_chain_rest="${SVPCHAIN_AGENT_CHAIN_REST:-}"
 
 while [[ $# -gt 0 ]]; do
@@ -409,7 +387,6 @@ while [[ $# -gt 0 ]]; do
     --jump-box)               jump_box="$2"; mark_flag SVPCHAIN_DEPLOY_JUMP_BOX;      shift 2 ;;
     --agent-chain-id)         agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
     --chain-id)               agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
-    --grpc-addr)              register_grpc="$2"; mark_flag SVPCHAIN_REGISTER_GRPC; shift 2 ;;
     --mcp-endpoint)           mcp_endpoint="$2"; mark_flag SVPCHAIN_MCP_ENDPOINT;   shift 2 ;;
     --assistant-provider)     assistant_provider="$2"; mark_flag SVPCHAIN_ASSISTANT_PROVIDER; shift 2 ;;
     --assistant-base-url)     assistant_base_url="$2"; mark_flag SVPCHAIN_ASSISTANT_BASE_URL; shift 2 ;;
@@ -430,7 +407,6 @@ while [[ $# -gt 0 ]]; do
     --gen-owner-key)          mode="gen-owner-key";   shift ;;
     --register)               mode="register";        shift ;;
     --bond)                   register_bond="$2";     shift 2 ;;
-    --register-grpc)          register_grpc="$2"; mark_flag SVPCHAIN_REGISTER_GRPC; shift 2 ;;
     --agent-chain-rest)       agent_chain_rest="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_REST; shift 2 ;;
     --print-env)              mode="print-env";       shift ;;
     --skip-build)             skip_build="1";         shift ;;
@@ -840,16 +816,10 @@ if [[ "$mode" == "register" ]]; then
   # else gRPC. Which chain it is no longer varies by route — there is one, and
   # --agent-chain-id names it.
   register_chain_id="$agent_chain_id"
-  chain_args=()
-  if [[ -n "$agent_chain_rest" ]]; then
-    chain_args=(-rest "$agent_chain_rest")
-    route="REST ${agent_chain_rest}"
-  else
-    [[ -n "$register_grpc" ]] \
-      || fail "no chain endpoint to register through — set --agent-chain-rest or --register-grpc"
-    chain_args=(-grpc "$register_grpc")
-    route="gRPC ${register_grpc}"
-  fi
+  [[ -n "$agent_chain_rest" ]] \
+    || fail "--agent-chain-rest is required to register: it is the registry chain's REST API as reachable from THIS machine, where the transaction is signed. Tunnel it first if only the deploy host can see the node: ssh -N -L 1317:127.0.0.1:1317 <host>"
+  chain_args=(-rest "$agent_chain_rest")
+  route="REST ${agent_chain_rest}"
   [[ -n "$register_chain_id" ]] || fail "--agent-chain-id is required to register: it names the chain carrying x/agent, and the signature commits to it"
 
   repo_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -892,7 +862,7 @@ if [[ "$mode" == "print-env" ]]; then
   env_names=(
     SVPCHAIN_CONFIG_DIR SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_AGENT_CHAIN_ID
     SVPCHAIN_PERPS_AGENT_PUBLIC_URL
-    SVPCHAIN_PERPS_AGENT_OWNER_KEY SVPCHAIN_REGISTER_GRPC
+    SVPCHAIN_PERPS_AGENT_OWNER_KEY
     SVPCHAIN_AGENT_CHAIN_REST
     SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
     SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
@@ -903,7 +873,7 @@ if [[ "$mode" == "print-env" ]]; then
   env_values=(
     "$config_dir" "$host" "$jump_box" "$agent_chain_id"
     "$public_url"
-    "$owner_key" "$register_grpc"
+    "$owner_key"
     "$agent_chain_rest"
     "$operator_capabilities" "$operator_metadata"
     "$price_amount" "$price_unit"

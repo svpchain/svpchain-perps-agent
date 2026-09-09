@@ -295,7 +295,7 @@ func TestDeployScriptDocumentsEveryFlagAndVariable(t *testing.T) {
 		// replaced them, but deliberately absent from --print-env and the
 		// example: listing a retired name as a setting invites new configs to
 		// use it.
-		deprecated := map[string]bool{"SVPCHAIN_CHAIN_ID": true, "SVPCHAIN_GRPC_ADDR": true}
+		deprecated := map[string]bool{"SVPCHAIN_CHAIN_ID": true}
 
 		for _, v := range vars {
 			if !strings.Contains(help, v) {
