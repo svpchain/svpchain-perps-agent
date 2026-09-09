@@ -40,10 +40,18 @@
 #                                  goes via it. Comma-separate to chain hops.
 #                                                         SVPCHAIN_DEPLOY_JUMP_BOX
 #
-# Chain (registration only — the agent itself never dials a chain; its
-# operations are served by the MCP server below):
-#   --chain-id <id>                SVPCHAIN_CHAIN_ID     (svp-2517-1)
-#   --grpc-addr <host:port>        SVPCHAIN_GRPC_ADDR    (127.0.0.1:9090)
+# The agent-registry chain (registration only — the agent itself never dials a
+# chain; its operations are served by the MCP server below):
+#   --agent-chain-id <id>          The chain carrying x/agent, which the
+#                                  registration signature commits to.
+#                                  SVPCHAIN_AGENT_CHAIN_ID   (svp-2517-1)
+#                                  --chain-id / SVPCHAIN_CHAIN_ID are the
+#                                  deprecated former names, still honoured.
+#   --grpc-addr <host:port>        Fallback registration endpoint, used when
+#                                  neither --agent-chain-rest nor
+#                                  --register-grpc is set. Only right when the
+#                                  chain answers at the same address from here.
+#                                  SVPCHAIN_GRPC_ADDR    (127.0.0.1:9090)
 #
 # Services:
 #   --mcp-endpoint <url>           The remote MCP server implementing this
@@ -150,11 +158,6 @@
 #                                  far more often exposed than its gRPC port,
 #                                  which is why this exists.
 #                                  SVPCHAIN_AGENT_CHAIN_REST
-#   --agent-chain-id <id>          --register only. The id of THAT chain, when
-#                                  x/agent lives on a chain other than the DEX
-#                                  chain. Defaults to --chain-id. Needs
-#                                  --agent-chain-rest.
-#                                  SVPCHAIN_AGENT_CHAIN_ID
 #   --bond <coin>                  --register only. Initial bond, e.g.
 #                                  5000000000000000000000asvp. Default: the
 #                                  module's MinBond.
@@ -181,6 +184,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 fail() { printf "  ${C_RED}✗${C_RESET} %s\n" "$*" >&2; exit 1; }
+warn() { printf "  ${C_YELLOW}!${C_RESET} %s\n" "$*" >&2; }
 
 # ---- this agent ------------------------------------------------------------
 #
@@ -242,7 +246,7 @@ unset _i _j
 # Names the config file may set. Snapshotted before sourcing so anything the
 # caller already exported survives.
 readonly CONFIG_VARS=(
-  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
+  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
   SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OWNER_KEY
   SVPCHAIN_REGISTER_GRPC SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
@@ -296,6 +300,17 @@ if [[ "$use_config" == "1" ]]; then
   unset _preset _v _kv
 fi
 
+# ★ The deprecated name, honoured rather than ignored. A config file setting
+# only SVPCHAIN_CHAIN_ID would otherwise fall back to the default and sign a
+# registration against the wrong chain, silently. Resolved here, where the
+# precedence layers have already settled, so --print-env still reports the
+# origin correctly rather than calling it a default.
+if [[ -z "${SVPCHAIN_AGENT_CHAIN_ID:-}" && -n "${SVPCHAIN_CHAIN_ID:-}" ]]; then
+  warn "SVPCHAIN_CHAIN_ID is the deprecated name for SVPCHAIN_AGENT_CHAIN_ID; rename it in your config file"
+  SVPCHAIN_AGENT_CHAIN_ID="$SVPCHAIN_CHAIN_ID"
+  was_preset SVPCHAIN_CHAIN_ID && ENV_PRESET+="SVPCHAIN_AGENT_CHAIN_ID "
+fi
+
 # ---- args ------------------------------------------------------------------
 
 mode="install"        # install | uninstall | init-config | gen-owner-key
@@ -310,7 +325,17 @@ was_flag()  { [[ "$FLAG_SET" == *" $1 "* ]]; }
 
 host=""
 jump_box="${SVPCHAIN_DEPLOY_JUMP_BOX:-}"
-chain_id="${SVPCHAIN_CHAIN_ID:-svp-2517-1}"
+# ★ One chain id, named for what it is: the chain carrying x/agent, which the
+# registration signature commits to. It used to be two — SVPCHAIN_CHAIN_ID for
+# the DEX chain the agent served, SVPCHAIN_AGENT_CHAIN_ID to override it when
+# x/agent lived elsewhere. The agent stopped serving a chain when its operations
+# moved to the MCP server, so the first meaning went and both names came to
+# denote the same thing.
+#
+# The old name is still honoured rather than ignored: a config file setting only
+# SVPCHAIN_CHAIN_ID would otherwise fall back to the default and sign against
+# the wrong chain, silently.
+agent_chain_id="${SVPCHAIN_AGENT_CHAIN_ID:-svp-2517-1}"
 grpc_addr="${SVPCHAIN_GRPC_ADDR:-127.0.0.1:9090}"
 # The remote MCP server this agent's operations run on. Unlike the chain
 # endpoints above it does NOT default to loopback: there is a deployed server
@@ -364,14 +389,14 @@ register_grpc="${SVPCHAIN_REGISTER_GRPC:-}"
 # as reachable from THIS machine. Set, it is the route: $register_grpc is not
 # consulted. $agent_chain_id names that chain when it is not the DEX chain;
 # empty means it is, and --chain-id signs.
-agent_chain_id="${SVPCHAIN_AGENT_CHAIN_ID:-}"
 agent_chain_rest="${SVPCHAIN_AGENT_CHAIN_REST:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --host)                   host="$2"; mark_flag SVPCHAIN_DEPLOY_HOST;              shift 2 ;;
     --jump-box)               jump_box="$2"; mark_flag SVPCHAIN_DEPLOY_JUMP_BOX;      shift 2 ;;
-    --chain-id)               chain_id="$2"; mark_flag SVPCHAIN_CHAIN_ID;          shift 2 ;;
+    --agent-chain-id)         agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
+    --chain-id)               agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
     --grpc-addr)              grpc_addr="$2"; mark_flag SVPCHAIN_GRPC_ADDR;         shift 2 ;;
     --mcp-endpoint)           mcp_endpoint="$2"; mark_flag SVPCHAIN_MCP_ENDPOINT;   shift 2 ;;
     --assistant-provider)     assistant_provider="$2"; mark_flag SVPCHAIN_ASSISTANT_PROVIDER; shift 2 ;;
@@ -394,7 +419,6 @@ while [[ $# -gt 0 ]]; do
     --register)               mode="register";        shift ;;
     --bond)                   register_bond="$2";     shift 2 ;;
     --register-grpc)          register_grpc="$2"; mark_flag SVPCHAIN_REGISTER_GRPC; shift 2 ;;
-    --agent-chain-id)         agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
     --agent-chain-rest)       agent_chain_rest="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_REST; shift 2 ;;
     --print-env)              mode="print-env";       shift ;;
     --skip-build)             skip_build="1";         shift ;;
@@ -800,27 +824,22 @@ if [[ "$mode" == "register" ]]; then
   resolve_owner_key
   [[ -n "$owner_key" ]] \
     || fail "no owner key configured — registration is the owner proving it holds the key this agent is registered under (see --gen-owner-key)"
-  # Which chain signs, and how it is reached. Over REST when --agent-chain-rest
-  # is set — its own chain id if x/agent lives elsewhere, the DEX chain's if
-  # not — else over gRPC. The gRPC route falls back to the container's
-  # endpoint, which is right only when the chain is reachable at the same
-  # address from here: a local dev node, typically.
+  # How the registry chain is reached: REST when --agent-chain-rest is set,
+  # else gRPC. Which chain it is no longer varies by route — there is one, and
+  # --agent-chain-id names it.
+  register_chain_id="$agent_chain_id"
   chain_args=()
   if [[ -n "$agent_chain_rest" ]]; then
-    register_chain_id="${agent_chain_id:-$chain_id}"
     chain_args=(-rest "$agent_chain_rest")
     route="REST ${agent_chain_rest}"
   else
-    [[ -z "$agent_chain_id" ]] \
-      || fail "--agent-chain-id names a chain this run has no way to reach — set --agent-chain-rest for it too"
-    register_chain_id="$chain_id"
     register_grpc="${register_grpc:-$grpc_addr}"
     [[ -n "$register_grpc" ]] \
-      || fail "no chain endpoint to register through — set --agent-chain-rest or --register-grpc (--grpc-addr is the container's view of the chain, not necessarily reachable from here)"
+      || fail "no chain endpoint to register through — set --agent-chain-rest or --register-grpc"
     chain_args=(-grpc "$register_grpc")
     route="gRPC ${register_grpc}"
   fi
-  [[ -n "$register_chain_id" ]] || fail "--chain-id is required to register: it names the chain carrying x/agent"
+  [[ -n "$register_chain_id" ]] || fail "--agent-chain-id is required to register: it names the chain carrying x/agent, and the signature commits to it"
 
   repo_dir="$(cd "${SCRIPT_DIR}/.." && pwd)"
   step "Registering ${AGENT_NAME} at ${public_url} on ${register_chain_id} via ${route}"
@@ -860,10 +879,10 @@ if [[ "$mode" == "print-env" ]]; then
   # Name → the local variable holding the resolved value. Parallel arrays
   # rather than an associative array, because macOS still ships bash 3.2.
   env_names=(
-    SVPCHAIN_CONFIG_DIR SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
+    SVPCHAIN_CONFIG_DIR SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_GRPC_ADDR
     SVPCHAIN_PERPS_AGENT_PUBLIC_URL
     SVPCHAIN_PERPS_AGENT_OWNER_KEY SVPCHAIN_REGISTER_GRPC
-    SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
+    SVPCHAIN_AGENT_CHAIN_REST
     SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
     SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
     SVPCHAIN_MCP_ENDPOINT SVPCHAIN_ANTHROPIC_API_KEY SVPCHAIN_OPENAI_API_KEY
@@ -871,10 +890,10 @@ if [[ "$mode" == "print-env" ]]; then
     SVPCHAIN_INSTALL_DIR
   )
   env_values=(
-    "$config_dir" "$host" "$jump_box" "$chain_id" "$grpc_addr"
+    "$config_dir" "$host" "$jump_box" "$agent_chain_id" "$grpc_addr"
     "$public_url"
     "$owner_key" "$register_grpc"
-    "$agent_chain_id" "$agent_chain_rest"
+    "$agent_chain_rest"
     "$operator_capabilities" "$operator_metadata"
     "$price_amount" "$price_unit"
     "$mcp_endpoint" "$anthropic_api_key" "$openai_api_key"

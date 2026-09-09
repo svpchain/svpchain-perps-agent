@@ -24,9 +24,14 @@ SVPCHAIN_DEPLOY_HOST="www@svpdev1.example.com"
 # this machine directly. Comma-separate to chain several hops.
 #SVPCHAIN_DEPLOY_JUMP_BOX="ops@bastion.example.com"
 
-# The chain, for --register only. The agent itself never dials a chain: every
-# operation it serves is a call to the MCP server below.
-SVPCHAIN_CHAIN_ID="svp-2517-1"
+# The chain carrying x/agent — the agent registry. Used by --register only, and
+# the registration signature commits to it. The agent itself never dials a
+# chain: every operation it serves is a call to the MCP server below.
+#
+# Formerly SVPCHAIN_CHAIN_ID, back when it also named the DEX chain the agent
+# served. That second meaning went when operations moved to the MCP server. The
+# old name is still honoured, with a warning.
+SVPCHAIN_AGENT_CHAIN_ID="svp-2517-1"
 
 # The remote MCP server this agent's operations run on (svpchain-dex-mcp). It
 # serves MCP at the root of its listener, so this is an origin and not a path.
@@ -97,9 +102,6 @@ SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
 # thing that can see the node, tunnel it first and point this at the local
 # end:  ssh -N -L 1317:127.0.0.1:1317 <deploy host>
 #SVPCHAIN_AGENT_CHAIN_REST="http://127.0.0.1:1317"
-# The id of that chain, only when x/agent lives on a chain other than the DEX
-# chain above; unset, SVPCHAIN_CHAIN_ID signs. Needs SVPCHAIN_AGENT_CHAIN_REST.
-#SVPCHAIN_AGENT_CHAIN_ID="svpagent-testnet-1"
 
 # Capability tags the registration is indexed by, and free-form metadata.
 SVPCHAIN_OPERATOR_CAPABILITIES="perps.trading,perps.market-data"

@@ -291,9 +291,21 @@ func TestDeployScriptDocumentsEveryFlagAndVariable(t *testing.T) {
 			t.Fatalf("--print-env: %v", err)
 		}
 
+		// Deprecated aliases are read, and documented beside the name that
+		// replaced them, but deliberately absent from --print-env and the
+		// example: listing a retired name as a setting invites new configs to
+		// use it.
+		deprecated := map[string]bool{"SVPCHAIN_CHAIN_ID": true}
+
 		for _, v := range vars {
 			if !strings.Contains(help, v) {
 				t.Errorf("%s is read by the script but undocumented in --help", v)
+			}
+			if deprecated[v] {
+				if strings.Contains(string(envOut), v+" ") {
+					t.Errorf("%s is deprecated but listed as a setting in --print-env", v)
+				}
+				continue
 			}
 			if !strings.Contains(string(example), v) {
 				t.Errorf("%s is missing from scripts/config.sh.example", v)
@@ -317,16 +329,47 @@ func TestPrintEnvReportsOrigins(t *testing.T) {
 	}
 
 	out, err := exec.Command("bash", script, "--no-config", "--print-env",
-		"--chain-id", "svp-from-flag-1").Output()
+		"--agent-chain-id", "svp-from-flag-1").Output()
 	if err != nil {
 		t.Fatalf("--print-env: %v", err)
 	}
 	if !strings.Contains(string(out), "config file: ignored (--no-config)") {
 		t.Errorf("--print-env should say the config file was ignored:\n%s", out)
 	}
-	line := regexp.MustCompile(`(?m)^SVPCHAIN_CHAIN_ID\s+(\S+)\s+(\S+)$`).FindStringSubmatch(string(out))
+	line := regexp.MustCompile(`(?m)^SVPCHAIN_AGENT_CHAIN_ID\s+(\S+)\s+(\S+)$`).FindStringSubmatch(string(out))
 	if line == nil || line[1] != "flag" || line[2] != "svp-from-flag-1" {
 		t.Errorf("--print-env should report the chain id as coming from the flag:\n%s", out)
+	}
+}
+
+// ★ The deprecated name must keep working, and must keep saying where the
+// value came from. A config file setting only the old name would otherwise
+// fall back to the default and sign a registration against the wrong chain,
+// with --print-env calling it a default and nothing looking wrong.
+func TestDeprecatedChainIDStillResolvesAndReportsItsOrigin(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("deploy script not found: %v", err)
+	}
+
+	cmd := exec.Command("bash", script, "--no-config", "--print-env")
+	cmd.Env = append(os.Environ(), "SVPCHAIN_CHAIN_ID=svp-deprecated-1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("--print-env: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "deprecated name") {
+		t.Errorf("no deprecation warning:\n%s", out)
+	}
+	line := regexp.MustCompile(`(?m)^SVPCHAIN_AGENT_CHAIN_ID\s+(\S+)\s+(\S+)$`).FindStringSubmatch(string(out))
+	if line == nil || line[2] != "svp-deprecated-1" {
+		t.Fatalf("the deprecated name did not resolve:\n%s", out)
+	}
+	if line[1] == "default" {
+		t.Errorf("origin reported as %q; a value that came from the environment must not read as a default", line[1])
 	}
 }
 
