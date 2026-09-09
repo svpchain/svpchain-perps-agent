@@ -85,7 +85,6 @@ const cardPath = "/.well-known/agent-card.json"
 type opts struct {
 	url          string
 	chainID      string
-	grpcAddr     string
 	restURL      string
 	keyFile      string
 	bond         string
@@ -105,8 +104,7 @@ func main() {
 	flag.StringVar(&o.url, "url", "", "base URL of the running agent; registered as its endpoint and where the card is fetched")
 	flag.StringVar(&o.chainID, "chain-id", os.Getenv(ChainIDEnvVar), "chain id of the chain carrying x/agent (default $"+ChainIDEnvVar+")")
 	flag.StringVar(&o.chainID, "agent-chain-id", os.Getenv(ChainIDEnvVar), "alias of -chain-id, the name scripts/deploy.sh uses")
-	flag.StringVar(&o.grpcAddr, "grpc", "", "gRPC address of that chain (host:port); exactly one of -grpc and -rest")
-	flag.StringVar(&o.restURL, "rest", os.Getenv(RestEnvVar), "Cosmos REST base URL of that chain (scheme://host:port, the gRPC-gateway, typically :1317); exactly one of -grpc and -rest (default $"+RestEnvVar+")")
+	flag.StringVar(&o.restURL, "rest", os.Getenv(RestEnvVar), "Cosmos REST base URL of that chain (scheme://host:port, the gRPC-gateway, typically :1317); required (default $"+RestEnvVar+")")
 	flag.StringVar(&o.restURL, "agent-chain-rest", os.Getenv(RestEnvVar), "alias of -rest, the name scripts/deploy.sh uses")
 	flag.StringVar(&o.keyFile, "key-file", "", "owner key file, when "+owner.KeyEnvVar+" is not set")
 	flag.StringVar(&o.bond, "bond", "", "initial bond as a coin, e.g. 5000000000000000000000asvp; empty takes the module's MinBond")
@@ -138,8 +136,8 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 	if o.chainID == "" {
 		return fmt.Errorf("-chain-id is required: it names the chain carrying x/agent, and the signature commits to it")
 	}
-	if (o.grpcAddr == "") == (o.restURL == "") {
-		return fmt.Errorf("exactly one of -grpc and -rest (or $%s) is required: how to reach the chain carrying x/agent", RestEnvVar)
+	if o.restURL == "" {
+		return fmt.Errorf("-rest (or $%s) is required: the Cosmos REST API of the chain carrying x/agent, as reachable from here", RestEnvVar)
 	}
 	tags := splitTags(o.capabilities)
 	if len(tags) == 0 {
@@ -257,7 +255,7 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 		// NotFound: say what has to land there, in the denom it has to land in.
 		return fmt.Errorf("%w\n%s", err, fundingHint(ctx, client, action, bond, o))
 	}
-	txBytes, err := owner.SignTx(priv, o.chainID, acct, []sdk.Msg{msg}, owner.FeeSpec{
+	txBytes, err := owner.SignTx(priv, o.chainID, owner.Account(acct), []sdk.Msg{msg}, owner.FeeSpec{
 		Denom:    o.feeDenom,
 		Amount:   o.feeAmount,
 		GasLimit: o.gasLimit,
@@ -276,10 +274,7 @@ func run(ctx context.Context, o opts, w io.Writer) error {
 // dial picks the transport the flags named. Everything after this point is
 // transport-blind: the same reads, the same signature, the same broadcast.
 func dial(ctx context.Context, o opts) (*agentchain.Client, error) {
-	if o.restURL != "" {
-		return agentchain.DialREST(o.restURL)
-	}
-	return agentchain.Dial(ctx, o.grpcAddr)
+	return agentchain.DialREST(o.restURL)
 }
 
 // resolveBond takes the operator's coin, or asks the module for its minimum.

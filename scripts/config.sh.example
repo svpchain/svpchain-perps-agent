@@ -29,8 +29,9 @@ SVPCHAIN_DEPLOY_HOST="www@svpdev1.example.com"
 # chain: every operation it serves is a call to the MCP server below.
 #
 # Formerly SVPCHAIN_CHAIN_ID, back when it also named the DEX chain the agent
-# served. That second meaning went when operations moved to the MCP server. The
-# old name is still honoured, with a warning.
+# served. That meaning went when operations moved to the MCP server, and the
+# old name is now refused rather than ignored: a config still setting it would
+# look configured while registration signed against the default chain.
 SVPCHAIN_AGENT_CHAIN_ID="svp-2517-1"
 
 # The remote MCP server this agent's operations run on (svpchain-dex-mcp). It

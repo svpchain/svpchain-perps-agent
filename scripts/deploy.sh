@@ -45,8 +45,6 @@
 #   --agent-chain-id <id>          The chain carrying x/agent, which the
 #                                  registration signature commits to.
 #                                  SVPCHAIN_AGENT_CHAIN_ID   (svp-2517-1)
-#                                  --chain-id / SVPCHAIN_CHAIN_ID are the
-#                                  deprecated former names, still honoured.
 #
 # Services:
 #   --mcp-endpoint <url>           The remote MCP server implementing this
@@ -237,7 +235,7 @@ unset _i _j
 # Names the config file may set. Snapshotted before sourcing so anything the
 # caller already exported survives.
 readonly CONFIG_VARS=(
-  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_CHAIN_ID
+  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_AGENT_CHAIN_ID
   SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OWNER_KEY
   SVPCHAIN_AGENT_CHAIN_REST
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
@@ -291,16 +289,6 @@ if [[ "$use_config" == "1" ]]; then
   unset _preset _v _kv
 fi
 
-# ★ The deprecated name, honoured rather than ignored. A config file setting
-# only SVPCHAIN_CHAIN_ID would otherwise fall back to the default and sign a
-# registration against the wrong chain, silently. Resolved here, where the
-# precedence layers have already settled, so --print-env still reports the
-# origin correctly rather than calling it a default.
-if [[ -z "${SVPCHAIN_AGENT_CHAIN_ID:-}" && -n "${SVPCHAIN_CHAIN_ID:-}" ]]; then
-  warn "SVPCHAIN_CHAIN_ID is the deprecated name for SVPCHAIN_AGENT_CHAIN_ID; rename it in your config file"
-  SVPCHAIN_AGENT_CHAIN_ID="$SVPCHAIN_CHAIN_ID"
-  was_preset SVPCHAIN_CHAIN_ID && ENV_PRESET+="SVPCHAIN_AGENT_CHAIN_ID "
-fi
 
 
 # ---- args ------------------------------------------------------------------
@@ -386,7 +374,6 @@ while [[ $# -gt 0 ]]; do
     --host)                   host="$2"; mark_flag SVPCHAIN_DEPLOY_HOST;              shift 2 ;;
     --jump-box)               jump_box="$2"; mark_flag SVPCHAIN_DEPLOY_JUMP_BOX;      shift 2 ;;
     --agent-chain-id)         agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
-    --chain-id)               agent_chain_id="$2"; mark_flag SVPCHAIN_AGENT_CHAIN_ID; shift 2 ;;
     --mcp-endpoint)           mcp_endpoint="$2"; mark_flag SVPCHAIN_MCP_ENDPOINT;   shift 2 ;;
     --assistant-provider)     assistant_provider="$2"; mark_flag SVPCHAIN_ASSISTANT_PROVIDER; shift 2 ;;
     --assistant-base-url)     assistant_base_url="$2"; mark_flag SVPCHAIN_ASSISTANT_BASE_URL; shift 2 ;;
@@ -421,6 +408,25 @@ while [[ $# -gt 0 ]]; do
     *) fail "unknown flag: $1" ;;
   esac
 done
+
+# ★ SVPCHAIN_CHAIN_ID, the former name, is refused rather than ignored: it
+# named the DEX chain the agent served as well as the registry chain, and the
+# first meaning went when operations moved to the MCP server. Ignoring it would
+# leave a config file that looks configured while registration signs against
+# the default chain.
+#
+# Refused only in the modes that would act on it. --help and the --print-*
+# modes still run, because a setting that stops you reading the help explaining
+# the rename, or the one mode that shows where each value came from, is a poor
+# way to report a rename.
+if [[ -n "${SVPCHAIN_CHAIN_ID:-}" ]]; then
+  case "$mode" in
+    install | register | gen-owner-key)
+      fail "SVPCHAIN_CHAIN_ID was renamed to SVPCHAIN_AGENT_CHAIN_ID — it names the chain carrying x/agent. Rename it in your config file." ;;
+    *)
+      warn "SVPCHAIN_CHAIN_ID was renamed to SVPCHAIN_AGENT_CHAIN_ID; rename it in your config file (this run does not need it)" ;;
+  esac
+fi
 
 : "${host:=${SVPCHAIN_DEPLOY_HOST:-}}"
 

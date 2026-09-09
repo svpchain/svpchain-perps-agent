@@ -11,7 +11,6 @@ import (
 	"github.com/cosmos/evm/crypto/ethsecp256k1"
 	"github.com/cosmos/gogoproto/proto"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/payload"
 )
 
@@ -33,10 +32,21 @@ type FeeSpec struct {
 // whose declared fee is missing from AuthInfo is rejected outright, so this
 // path always stamps one. There is deliberately no gas-free branch here — no
 // message this package signs qualifies for it.
+// Account is what signing needs from an auth query.
+//
+// ★ Two fields rather than an import. This used to be internal/mcp/chain's
+// AccountInfo, from the vendored copy of the MCP server's chain clients; that
+// package is gone, and the alternative was for this package — which is about
+// keys and signatures — to depend on the chain client for a pair of integers.
+type Account struct {
+	AccountNumber uint64
+	Sequence      uint64
+}
+
 func SignTx(
 	priv *ethsecp256k1.PrivKey,
 	chainID string,
-	acct chain.AccountInfo,
+	acct Account,
 	msgs []sdk.Msg,
 	fee FeeSpec,
 ) ([]byte, error) {

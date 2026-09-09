@@ -9,15 +9,16 @@
 // running where it is maintained, so the fork's whole reason to exist went
 // with the dispatch.
 //
-// Four packages survive, and only cmd/agent-register and internal/owner reach
+// Three packages survive, and only cmd/agent-register and internal/owner reach
 // them:
 //
-//   - chain: dialling gRPC, reading an account's number and sequence, and
-//     broadcasting. Pruned to that; the clob, perpetuals, subaccount and bank
-//     query clients went with the handlers that used them, and the markets
-//     cache with them.
 //   - mcpcodec: the interface registry, so a registration tx encodes.
 //   - signer, payload: signing that tx with the owner key.
+//
+// The chain package went too. It held the gRPC clients a registration dialled
+// and the types a REST one returns; dropping the gRPC route left the clients
+// with no caller, and four types and a regex are not worth a package, so they
+// moved to internal/agentchain beside the code that uses them.
 //
 // Registration is the last thing this repo signs. Everything an A2A caller
 // asks for is built by the server and signed by the caller, so if the register

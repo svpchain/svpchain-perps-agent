@@ -150,7 +150,7 @@ func TestDeployScriptReadsConfigFile(t *testing.T) {
 
 	dir := t.TempDir()
 	settings := "SVPCHAIN_DEPLOY_HOST=\"www@host.example.com\"\n" +
-		"SVPCHAIN_CHAIN_ID=\"svp-from-file-1\"\n" +
+		"SVPCHAIN_AGENT_CHAIN_ID=\"svp-from-file-1\"\n" +
 		"SVPCHAIN_PERPS_AGENT_PUBLIC_URL=\"https://perps.example.org\"\n" +
 		"SVPCHAIN_MARKETS_REFRESH=\"90s\"\n" +
 		"SVPCHAIN_WITHDRAW_MAX_USDC=\"777\"\n"
@@ -291,21 +291,9 @@ func TestDeployScriptDocumentsEveryFlagAndVariable(t *testing.T) {
 			t.Fatalf("--print-env: %v", err)
 		}
 
-		// Deprecated aliases are read, and documented beside the name that
-		// replaced them, but deliberately absent from --print-env and the
-		// example: listing a retired name as a setting invites new configs to
-		// use it.
-		deprecated := map[string]bool{"SVPCHAIN_CHAIN_ID": true}
-
 		for _, v := range vars {
 			if !strings.Contains(help, v) {
 				t.Errorf("%s is read by the script but undocumented in --help", v)
-			}
-			if deprecated[v] {
-				if strings.Contains(string(envOut), v+" ") {
-					t.Errorf("%s is deprecated but listed as a setting in --print-env", v)
-				}
-				continue
 			}
 			if !strings.Contains(string(example), v) {
 				t.Errorf("%s is missing from scripts/config.sh.example", v)
@@ -342,11 +330,10 @@ func TestPrintEnvReportsOrigins(t *testing.T) {
 	}
 }
 
-// ★ The deprecated name must keep working, and must keep saying where the
-// value came from. A config file setting only the old name would otherwise
-// fall back to the default and sign a registration against the wrong chain,
-// with --print-env calling it a default and nothing looking wrong.
-func TestDeprecatedChainIDStillResolvesAndReportsItsOrigin(t *testing.T) {
+// ★ The former name is refused, not ignored. It named two chains once, and
+// only one of those meanings survived; a config file still setting it looks
+// configured while the registration signs against the default chain.
+func TestRenamedChainIDIsRefusedNotIgnored(t *testing.T) {
 	script, err := filepath.Abs(filepath.Join("scripts", "deploy.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -355,21 +342,29 @@ func TestDeprecatedChainIDStillResolvesAndReportsItsOrigin(t *testing.T) {
 		t.Skipf("deploy script not found: %v", err)
 	}
 
-	cmd := exec.Command("bash", script, "--no-config", "--print-env")
-	cmd.Env = append(os.Environ(), "SVPCHAIN_CHAIN_ID=svp-deprecated-1")
+	// An acting mode: --print-* and --help still run, so that a rename cannot
+	// stop you reading the help that explains it.
+	cmd := exec.Command("bash", script, "--no-config", "--host", "www@agent.example.com", "--dry-run")
+	cmd.Env = append(os.Environ(), "SVPCHAIN_CHAIN_ID=svp-old-1")
 	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("the retired name was accepted:\n%s", out)
+	}
+	for _, want := range []string{"SVPCHAIN_CHAIN_ID", "SVPCHAIN_AGENT_CHAIN_ID", "Rename"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("the refusal does not mention %q:\n%s", want, out)
+		}
+	}
+
+	// ...but an inspecting mode still runs, warning rather than refusing.
+	cmd = exec.Command("bash", script, "--no-config", "--print-env")
+	cmd.Env = append(os.Environ(), "SVPCHAIN_CHAIN_ID=svp-old-1")
+	out, err = cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("--print-env: %v\n%s", err, out)
+		t.Fatalf("--print-env refused; it is the mode you reach for to diagnose this:\n%s", out)
 	}
-	if !strings.Contains(string(out), "deprecated name") {
-		t.Errorf("no deprecation warning:\n%s", out)
-	}
-	line := regexp.MustCompile(`(?m)^SVPCHAIN_AGENT_CHAIN_ID\s+(\S+)\s+(\S+)$`).FindStringSubmatch(string(out))
-	if line == nil || line[2] != "svp-deprecated-1" {
-		t.Fatalf("the deprecated name did not resolve:\n%s", out)
-	}
-	if line[1] == "default" {
-		t.Errorf("origin reported as %q; a value that came from the environment must not read as a default", line[1])
+	if !strings.Contains(string(out), "renamed") {
+		t.Errorf("--print-env did not warn about the retired name:\n%s", out)
 	}
 }
 

@@ -24,7 +24,6 @@ import (
 
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/mcpcodec"
 )
 
@@ -137,46 +136,46 @@ func (r *restClient) Params(ctx context.Context, _ *agenttypes.QueryParams, _ ..
 	return out, r.get(ctx, "/dydxprotocol/agent/params", out)
 }
 
-// -- x/auth (chain.AccountClient) ----------------------------------------
+// -- x/auth (AccountClient) ----------------------------------------
 
-func (r *restClient) Account(ctx context.Context, address string) (chain.AccountInfo, error) {
+func (r *restClient) Account(ctx context.Context, address string) (AccountInfo, error) {
 	out := &authtypes.QueryAccountResponse{}
 	if err := r.get(ctx, "/cosmos/auth/v1beta1/accounts/"+url.PathEscape(address), out); err != nil {
-		return chain.AccountInfo{}, fmt.Errorf("auth.Query/Account %s: %w", address, err)
+		return AccountInfo{}, fmt.Errorf("auth.Query/Account %s: %w", address, err)
 	}
 	var acc sdk.AccountI
 	if err := r.registry.UnpackAny(out.Account, &acc); err != nil {
-		return chain.AccountInfo{}, fmt.Errorf("unpack account %s: %w", address, err)
+		return AccountInfo{}, fmt.Errorf("unpack account %s: %w", address, err)
 	}
-	return chain.AccountInfo{AccountNumber: acc.GetAccountNumber(), Sequence: acc.GetSequence()}, nil
+	return AccountInfo{AccountNumber: acc.GetAccountNumber(), Sequence: acc.GetSequence()}, nil
 }
 
-// -- tx service (chain.BroadcastClient) ----------------------------------
+// -- tx service (BroadcastClient) ----------------------------------
 
 // BroadcastSync submits pre-signed tx bytes via POST /cosmos/tx/v1beta1/txs
 // with BROADCAST_MODE_SYNC — CheckTx, not inclusion — matching what the gRPC
 // client does, so Client.BroadcastSync treats both results the same way.
-func (r *restClient) BroadcastSync(ctx context.Context, txBytes []byte) (chain.BroadcastResult, error) {
+func (r *restClient) BroadcastSync(ctx context.Context, txBytes []byte) (BroadcastResult, error) {
 	reqBody, err := json.Marshal(map[string]string{
 		"tx_bytes": base64.StdEncoding.EncodeToString(txBytes),
 		"mode":     "BROADCAST_MODE_SYNC",
 	})
 	if err != nil {
-		return chain.BroadcastResult{}, err
+		return BroadcastResult{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.base+"/cosmos/tx/v1beta1/txs", bytes.NewReader(reqBody))
 	if err != nil {
-		return chain.BroadcastResult{}, err
+		return BroadcastResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	out := &sdktx.BroadcastTxResponse{}
 	if err := r.do(req, out); err != nil {
-		return chain.BroadcastResult{}, err
+		return BroadcastResult{}, err
 	}
 	if out.TxResponse == nil {
-		return chain.BroadcastResult{}, fmt.Errorf("chain REST broadcast: empty tx_response")
+		return BroadcastResult{}, fmt.Errorf("chain REST broadcast: empty tx_response")
 	}
-	return chain.BroadcastResult{
+	return BroadcastResult{
 		TxHash: out.TxResponse.TxHash,
 		Code:   out.TxResponse.Code,
 		RawLog: out.TxResponse.RawLog,

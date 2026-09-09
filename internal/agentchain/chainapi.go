@@ -1,9 +1,47 @@
-package chain
+// chainapi.go holds the small chain-facing surface a registration needs: what
+// an account query returns, what a broadcast returns, and how to read a
+// CheckTx rejection.
+//
+// ★ These came from internal/mcp/chain, the vendored copy of the MCP server's
+// chain clients. That package also carried gRPC implementations of both
+// interfaces; removing the gRPC registration route left them with no caller,
+// and the four types below were all that was still reachable. Keeping a
+// package for four types and a regex was worse than moving them here, so the
+// last chain-side package in internal/mcp is gone.
+package agentchain
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 )
+
+// AccountInfo is what signing a transaction needs from an auth query:
+// account_number is constant for the life of the account, sequence is the
+// next nonce.
+type AccountInfo struct {
+	AccountNumber uint64
+	Sequence      uint64
+}
+
+// AccountClient reads an account's number and sequence.
+type AccountClient interface {
+	Account(ctx context.Context, address string) (AccountInfo, error)
+}
+
+// BroadcastResult is the chain's response to a synchronous broadcast. Code 0
+// means accepted into the mempool; non-zero is a CheckTx rejection, with
+// RawLog explaining why.
+type BroadcastResult struct {
+	TxHash string
+	Code   uint32
+	RawLog string
+}
+
+// BroadcastClient submits pre-signed transaction bytes.
+type BroadcastClient interface {
+	BroadcastSync(ctx context.Context, txBytes []byte) (BroadcastResult, error)
+}
 
 // ErrInsufficientFee carries the structured fee shortfall extracted from a
 // cosmos-sdk MempoolFeeDecorator rejection. Tool handlers surface this so

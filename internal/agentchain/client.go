@@ -25,22 +25,20 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/mcpcodec"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 )
 
 // Client bundles the three chain surfaces a registration needs: the x/agent
 // registry to read current state, x/auth for the signer's account number and
-// sequence, and the tx service to broadcast. Dial reaches them over gRPC,
-// DialREST over the chain's REST API; everything above this line is the same.
+// sequence, and the tx service to broadcast. DialREST is the only constructor:
+// there was a gRPC one beside it, and the deploy stopped offering that route
+// because a node's REST port is far more often exposed.
 type Client struct {
 	close     func() error
 	agents    agentQuerier
-	accounts  chain.AccountClient
-	broadcast chain.BroadcastClient
+	accounts  AccountClient
+	broadcast BroadcastClient
 }
 
 // agentQuerier is the slice of agenttypes.QueryClient a registration reads.
@@ -55,24 +53,6 @@ type agentQuerier interface {
 	// which id a new one gets, are both questions only the chain can answer.
 	AgentsByOwner(ctx context.Context, in *agenttypes.QueryAgentsByOwner, opts ...grpc.CallOption) (*agenttypes.QueryAgentsByOwnerResponse, error)
 	NextAgentIndex(ctx context.Context, in *agenttypes.QueryNextAgentIndex, opts ...grpc.CallOption) (*agenttypes.QueryNextAgentIndexResponse, error)
-}
-
-// Dial connects to the chain carrying x/agent over gRPC. In a single-chain
-// deployment that is the same endpoint the agent serves its own queries from.
-func Dial(ctx context.Context, grpcAddr string) (*Client, error) {
-	conn, err := chain.Dial(ctx, grpcAddr)
-	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", grpcAddr, err)
-	}
-	// The registry unpacks Any-wrapped accounts and pubkeys; mcpcodec is the
-	// one that already knows every svpchain module type plus eth_secp256k1.
-	enc := mcpcodec.GetEncodingConfig()
-	return &Client{
-		close:     conn.Close,
-		agents:    agenttypes.NewQueryClient(conn),
-		accounts:  chain.NewAccountClient(conn, enc.InterfaceRegistry),
-		broadcast: chain.NewBroadcastClient(conn),
-	}, nil
 }
 
 func (c *Client) Close() error { return c.close() }
@@ -154,18 +134,18 @@ func (c *Client) ResolveAgent(ctx context.Context, ownerAddr sdk.AccAddress) (st
 }
 
 // Account returns the signer's account number and sequence.
-func (c *Client) Account(ctx context.Context, address string) (chain.AccountInfo, error) {
+func (c *Client) Account(ctx context.Context, address string) (AccountInfo, error) {
 	return c.accounts.Account(ctx, address)
 }
 
 // BroadcastSync submits signed tx bytes and turns a non-zero CheckTx code into
 // an error, so callers do not have to inspect the result to know it failed.
-func (c *Client) BroadcastSync(ctx context.Context, txBytes []byte) (chain.BroadcastResult, error) {
+func (c *Client) BroadcastSync(ctx context.Context, txBytes []byte) (BroadcastResult, error) {
 	res, err := c.broadcast.BroadcastSync(ctx, txBytes)
 	if err != nil {
 		return res, err
 	}
-	if err := chain.ParseBroadcastError(res); err != nil {
+	if err := ParseBroadcastError(res); err != nil {
 		return res, err
 	}
 	// ParseBroadcastError only types the rejections it recognises and returns

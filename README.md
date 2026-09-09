@@ -206,8 +206,7 @@ SVPCHAIN_PERPS_AGENT_OWNER_KEY=… go run ./cmd/agent-register \
   -capabilities perps.trading,perps.market-data -price-amount 1000000
 ```
 
-The tool still accepts `-grpc 127.0.0.1:9090` in place of `-rest`; exactly
-one of the two is required. `-agent-chain-rest` / `-agent-chain-id` are
+`-rest` is required: REST is the only route. `-agent-chain-rest` / `-agent-chain-id` are
 accepted as aliases (the deploy script's flag names), and `-rest` / `-chain-id` default to
 `SVPCHAIN_AGENT_CHAIN_REST` and `SVPCHAIN_AGENT_CHAIN_ID` from the environment
 — the same names `config.sh` sets — so sourcing the config file is enough.
