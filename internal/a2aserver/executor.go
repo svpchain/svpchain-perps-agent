@@ -10,7 +10,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
 
@@ -27,11 +26,6 @@ import (
 // is exactly what that skill is for. A caller that names its tool never
 // reaches a model.
 type Executor struct {
-	// market backs the legacy {"skill":…,"query":…} form. Nil on an agent that
-	// does not register the market-data family, which then refuses that path
-	// rather than answering off-card.
-	market *marketdata.Service
-
 	registry *toolbridge.Registry
 	authr    *AuthResolver
 }
@@ -42,8 +36,8 @@ const assistantTool = "ask"
 var _ a2asrv.AgentExecutor = (*Executor)(nil)
 
 // NewFullExecutor returns an executor serving the whole operation registry.
-func NewFullExecutor(market *marketdata.Service, registry *toolbridge.Registry, authr *AuthResolver) *Executor {
-	return &Executor{market: market, registry: registry, authr: authr}
+func NewFullExecutor(registry *toolbridge.Registry, authr *AuthResolver) *Executor {
+	return &Executor{registry: registry, authr: authr}
 }
 
 func (e *Executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
@@ -111,11 +105,14 @@ func (e *Executor) handle(ctx context.Context, execCtx *a2asrv.ExecutorContext) 
 		return "", fmt.Errorf("no skill named — %s", e.envelopeHelp())
 	}
 
-	// Legacy read-layer form: {"skill":"svpchain-market-data","query":...}.
-	// Served straight from the market-data service so pre-envelope callers
-	// (and the original examples on the card) keep working byte-for-byte.
-	if req.Skill == toolbridge.SkillMarketData && req.Query != "" {
-		return e.handleMarketData(ctx, req)
+	// ★ The {"skill":…,"query":…} form is gone. It was served from a direct
+	// indexer client with no credential, which is the one thing that could not
+	// move onto the MCP server: every tool there is bearer-gated. A caller on
+	// that form gets this, which names what replaced each query.
+	if req.Query != "" {
+		return "", fmt.Errorf(
+			"the %q form was removed; name a tool instead — markets/market/orderbook/funding are list_markets, get_market, get_orderbook and get_historical_funding, and estimate is %s. All need a bearer from svpchain-auth",
+			"query", toolbridge.EstimateClearingPrice)
 	}
 
 	if req.Tool == "" {
@@ -176,56 +173,6 @@ func (e *Executor) envelopeHelp() string {
 		return help + `. This agent also answers plain-English questions: send the question as the message text, with a bearer from svpchain-auth for anything account-scoped`
 	}
 	return help
-}
-
-func (e *Executor) handleMarketData(ctx context.Context, req Request) (string, error) {
-	// Nil on binaries that do not register the market-data family; the legacy
-	// query path reaches here before any registry lookup, so refuse explicitly.
-	if e.market == nil {
-		return "", fmt.Errorf("this deployment does not serve %s", toolbridge.SkillMarketData)
-	}
-	switch req.Query {
-	case "markets":
-		return asJSON(e.market.Markets(ctx))
-	case "market":
-		return asJSON(e.market.Market(ctx, req.Ticker))
-	case "orderbook":
-		return asJSON(e.market.Orderbook(ctx, req.Ticker))
-	case "funding":
-		return asJSON(e.market.Funding(ctx, req.Ticker))
-	case "estimate":
-		side, err := parseSide(req.Side)
-		if err != nil {
-			return "", err
-		}
-		return asJSON(e.market.EstimateClearing(ctx, req.Ticker, side, req.Size))
-	default:
-		return "", fmt.Errorf("unknown query %q", req.Query)
-	}
-}
-
-func parseSide(s string) (marketdata.Side, error) {
-	switch marketdata.Side(s) {
-	case marketdata.Buy:
-		return marketdata.Buy, nil
-	case marketdata.Sell:
-		return marketdata.Sell, nil
-	default:
-		return "", fmt.Errorf("side must be %q or %q, got %q", marketdata.Buy, marketdata.Sell, s)
-	}
-}
-
-// asJSON renders a service result, propagating the service error unchanged so
-// the caller sees why a lookup failed rather than a generic marshalling error.
-func asJSON(v any, err error) (string, error) {
-	if err != nil {
-		return "", err
-	}
-	b, marshalErr := json.Marshal(v)
-	if marshalErr != nil {
-		return "", fmt.Errorf("encode result: %w", marshalErr)
-	}
-	return string(b), nil
 }
 
 // messageText concatenates the text parts of a message. Mirrors the helper the

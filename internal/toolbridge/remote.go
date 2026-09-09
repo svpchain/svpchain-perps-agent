@@ -91,6 +91,7 @@ func NewRemote(mcp *mcpclient.Client) *Registry {
 			r.add(skill, tool, remoteBound(mcp, tool))
 		}
 	}
+	r.registerEstimate(mcp)
 	r.RegisterMeta()
 	// A nil client builds the registry's shape without a connection, which is
 	// what the card tests need: the card is made of tool names, and those are

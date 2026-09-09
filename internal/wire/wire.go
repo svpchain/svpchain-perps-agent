@@ -22,7 +22,6 @@ import (
 
 	"github.com/svpchain/svpchain-perps-agent/internal/assistant"
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
@@ -31,7 +30,6 @@ import (
 type App struct {
 	Registry *toolbridge.Registry
 	MCP      *mcpclient.Client
-	Indexer  *indexer.Client
 	Logger   log.Logger
 }
 
@@ -114,12 +112,7 @@ func Build(ctx context.Context, cfg *config.Config) (*App, error) {
 		logger.Info("assistant skill not served", "reason", why)
 	}
 
-	app := &App{
-		Registry: registry,
-		MCP:      mcpConn,
-		Indexer:  indexer.NewClient(cfg.DEXChain.IndexerBaseURL, indexer.Options{}),
-		Logger:   logger,
-	}
+	app := &App{Registry: registry, MCP: mcpConn, Logger: logger}
 	if err := app.CheckCatalog(ctx); err != nil {
 		app.Close()
 		return nil, err

@@ -1,52 +1,33 @@
 // Package config is this agent's configuration, loaded from a TOML file.
 //
-// The schema was adapted from svpchain-mcp's cmd/mcp-server config — a
-// historical origin, not a live dependency, now that internal/mcp is a fork
-// rather than a module require (see internal/mcp/doc.go): the same
-// network endpoints, the same all-or-nothing rules for optional families, and
-// the same graceful degradation — an unset optional family means those
-// operations refuse at call time with a reason, and the agent still boots. On
-// top of that the agent adds its A2A identity (public_url).
+// It is short, because the agent is. Where it once described a whole DEX
+// service — chain endpoints, a markets cache refresh, gas fees, funds limits,
+// a transfer-cap state file — those all configured a vendored copy of the MCP
+// server running in-process. That copy is gone, so those settings belong to
+// the server now, and what is left is this agent's own identity plus where to
+// find that server.
 //
-// The EVM / swap / bridge / oracle / lendora sections, and later the
-// [operator] / [agent_chain] sections of the delegated-execution stack, are
-// gone along with the surfaces that read them. Unknown keys are collected
-// rather than rejected, so a deployed agent.toml still carrying them loads
-// unchanged.
+// Unknown keys are collected rather than rejected, so a deployed agent.toml
+// still carrying the retired blocks loads unchanged and an upgrade does not
+// need the config replaced first.
 package config
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
 
-	"cosmossdk.io/math"
 	"github.com/BurntSushi/toml"
 )
 
 // Config is the agent's configuration.
 type Config struct {
-	DEXChain   DEXChainConfig `toml:"dex_chain"`
-	ListenAddr string         `toml:"listen_addr"`
+	ListenAddr string `toml:"listen_addr"`
 
 	// PublicURL is how callers reach this agent, advertised in the Agent Card.
 	// Defaults to "http://localhost"+ListenAddr when empty.
 	PublicURL string `toml:"public_url"`
 
-	// TransferOutCapPath persists per-symbol daily transfer-out caps and the
-	// running tally to a JSON file. Optional: when empty the state is
-	// in-memory only and resets on restart. Relative paths resolve against
-	// the config file's directory.
-	TransferOutCapPath string `toml:"transfer_out_cap_path"`
-
-	// BroadcastMode is informational for whoami; the agent always broadcasts
-	// the signed tx a caller lands via broadcast_signed_tx.
-	BroadcastMode string `toml:"broadcast_mode"`
-
-	Cache  CacheConfig  `toml:"cache"`
-	Limits LimitsConfig `toml:"limits"`
-	Fee    FeeConfig    `toml:"fee"`
-	MCP    MCPConfig    `toml:"mcp"`
+	MCP MCPConfig `toml:"mcp"`
 
 	Assistant AssistantConfig `toml:"assistant"`
 }
@@ -116,41 +97,6 @@ type MCPConfig struct {
 	CallTimeout Duration `toml:"call_timeout"`
 }
 
-// DEXChainConfig points the agent at the DEX chain (an EVM-compatible
-// cosmos-sdk chain): its chain id and the endpoints the chain-facing families
-// share — queries and broadcast over gRPC, tx status over CometBFT RPC, reads
-// over the Comlink indexer, and the chain's EVM JSON-RPC. All but the EVM
-// endpoint are required.
-type DEXChainConfig struct {
-	ID             string `toml:"id"`
-	GrpcAddr       string `toml:"grpc_addr"`
-	CometRPCURL    string `toml:"comet_rpc_url"`
-	IndexerBaseURL string `toml:"indexer_base_url"`
-}
-
-// FeeConfig sets the gas fee stamped onto non-CLOB txs. Short-term CLOB
-// orders are gas-free on svpchain and always ship with an empty fee.
-type FeeConfig struct {
-	Denom    string `toml:"denom"`
-	Amount   string `toml:"amount"`
-	GasLimit uint64 `toml:"gas_limit"`
-}
-
-// LimitsConfig caps the size of funds movements, in human USDC. Zero
-// disables the corresponding check.
-type LimitsConfig struct {
-	DepositMaxUSDC       uint64 `toml:"deposit_max_usdc"`
-	WithdrawMaxUSDC      uint64 `toml:"withdraw_max_usdc"`
-	TransferMaxUSDC      uint64 `toml:"transfer_max_usdc"`
-	DailyWithdrawCapUSDC uint64 `toml:"daily_withdraw_cap_usdc"`
-}
-
-type CacheConfig struct {
-	// MarketsRefresh is parsed as a Go duration string ("60s", "2m"…).
-	// Zero means the package default in markets.NewCache.
-	MarketsRefresh Duration `toml:"markets_refresh"`
-}
-
 // Duration parses TOML strings like "60s" into a time.Duration.
 type Duration time.Duration
 
@@ -170,12 +116,6 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("decode TOML %s: %w", path, err)
 	}
 	c.ApplyDefaults()
-	// Relative paths resolve against the config file's own directory, so a
-	// state file kept next to agent.toml works regardless of where the agent
-	// is launched from.
-	if c.TransferOutCapPath != "" && !filepath.IsAbs(c.TransferOutCapPath) {
-		c.TransferOutCapPath = filepath.Join(filepath.Dir(path), c.TransferOutCapPath)
-	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -184,38 +124,19 @@ func Load(path string) (*Config, error) {
 
 // ApplyDefaults fills the fields a config may omit.
 func (c *Config) ApplyDefaults() {
-	if c.BroadcastMode == "" {
-		c.BroadcastMode = "server"
-	}
 	if c.PublicURL == "" && c.ListenAddr != "" {
 		c.PublicURL = "http://localhost" + c.ListenAddr
 	}
-	c.Fee.applyDefaults()
 }
 
 // Validate enforces the required network-level fields and the optional
 // families' invariants.
 func (c *Config) Validate() error {
-	if c.DEXChain.ID == "" {
-		return fmt.Errorf("dex_chain.id is required")
-	}
-	if c.DEXChain.GrpcAddr == "" {
-		return fmt.Errorf("dex_chain.grpc_addr is required")
-	}
-	if c.DEXChain.CometRPCURL == "" {
-		return fmt.Errorf("dex_chain.comet_rpc_url is required")
-	}
-	if c.DEXChain.IndexerBaseURL == "" {
-		return fmt.Errorf("dex_chain.indexer_base_url is required")
-	}
 	if c.ListenAddr == "" {
 		return fmt.Errorf("listen_addr is required")
 	}
 	if c.MCP.Endpoint == "" {
 		return fmt.Errorf("mcp.endpoint is required: every operation this agent serves is a call to that server")
-	}
-	if err := c.Fee.validate(); err != nil {
-		return err
 	}
 	return c.Assistant.validate()
 }
@@ -230,39 +151,4 @@ func (a *AssistantConfig) validate() error {
 	default:
 		return fmt.Errorf("assistant.provider %q is not one of anthropic, openai", a.Provider)
 	}
-}
-
-// Default fee applied to non-CLOB txs when the [fee] section is absent.
-// Matches a chain whose minimum-gas-prices is 25000000000asvp at a
-// 1,000,000 gas limit (≈0.025 SVP total).
-const (
-	DefaultFeeDenom    = "asvp"
-	DefaultFeeAmount   = "25000000000000000"
-	DefaultFeeGasLimit = uint64(1_000_000)
-)
-
-func (f *FeeConfig) applyDefaults() {
-	if f.Denom == "" {
-		f.Denom = DefaultFeeDenom
-	}
-	if f.Amount == "" {
-		f.Amount = DefaultFeeAmount
-	}
-	if f.GasLimit == 0 {
-		f.GasLimit = DefaultFeeGasLimit
-	}
-}
-
-func (f *FeeConfig) validate() error {
-	if f.Denom == "" {
-		return fmt.Errorf("fee.denom is required")
-	}
-	amt, ok := math.NewIntFromString(f.Amount)
-	if !ok {
-		return fmt.Errorf("fee.amount %q is not a valid integer", f.Amount)
-	}
-	if amt.IsNegative() {
-		return fmt.Errorf("fee.amount %q must be non-negative", f.Amount)
-	}
-	return nil
 }

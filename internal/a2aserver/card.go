@@ -30,12 +30,12 @@ var skillMetas = []skillMeta{
 		name: "SVP-Chain Market Data",
 		desc: "Read-only market intelligence: perpetual markets, live orderbooks, candles, " +
 			"trades, funding, and a batch-auction clearing-price estimate for a given " +
-			"order size. Needs no credential and no account.",
+			"order size. Requires a bearer from the svpchain-auth skill.",
 		tags: []string{"market-data", "orderbook", "funding", "perpetuals", "read-only"},
 		examples: []string{
-			`{"skill":"svpchain-market-data","query":"estimate","ticker":"BTC-USD","side":"buy","size":"2.5"}`,
-			`{"skill":"svpchain-market-data","tool":"list_markets"}`,
-			`{"skill":"svpchain-market-data","tool":"get_orderbook","args":{"ticker":"BTC-USD"}}`,
+			`{"skill":"svpchain-market-data","tool":"list_markets","bearer":"…"}`,
+			`{"skill":"svpchain-market-data","tool":"get_orderbook","args":{"ticker":"BTC-USD"},"bearer":"…"}`,
+			`{"skill":"svpchain-market-data","tool":"estimate_clearing_price","args":{"ticker":"BTC-USD","side":"buy","size":"2.5"},"bearer":"…"}`,
 		},
 	},
 	{
@@ -65,8 +65,8 @@ var skillMetas = []skillMeta{
 		id:   toolbridge.SkillFunds,
 		name: "SVP-Chain Funds (build)",
 		desc: "Build unsigned funds movements — deposit/withdraw/transfer between subaccounts, " +
-			"bank send — plus per-symbol daily transfer-out caps. Movements are size-capped " +
-			"by the operator's limits config.",
+			"bank send — plus per-symbol daily transfer-out caps. Movement sizes are capped " +
+			"by the limits the backing service is configured with.",
 		tags: []string{"funds", "deposit", "withdraw", "unsigned-tx"},
 	},
 	{
@@ -110,9 +110,9 @@ var skillMetas = []skillMeta{
 		id:   toolbridge.SkillMeta,
 		name: "SVP-Chain Agent Self-Description",
 		desc: "Discovery: list_tools returns every tool this agent serves, with the skill " +
-			"it belongs to and the JSON Schema of its arguments — the A2A equivalent of " +
-			"MCP's tools/list, which the A2A protocol itself does not provide. Needs no " +
-			"credential.",
+			"it belongs to, what it does, and the JSON Schema of its arguments — the A2A " +
+			"equivalent of MCP's tools/list, which the A2A protocol itself does not " +
+			"provide. Needs no credential.",
 		tags: []string{"discovery", "schema", "read-only"},
 		examples: []string{
 			`{"skill":"svpchain-meta","tool":"list_tools"}`,

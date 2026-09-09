@@ -150,3 +150,18 @@ func sameSet(a, b []string) bool {
 	slices.Sort(bs)
 	return slices.Equal(as, bs)
 }
+
+// Gas defaults for the registration transaction this tool signs.
+//
+// ★ These lived in internal/config while the agent itself built and signed
+// transactions. It no longer does — every payload is built by the MCP server
+// and signed by the caller — so the only transaction this repo still signs is
+// a registration, and the defaults belong beside it.
+//
+// They match a chain whose minimum-gas-prices is 25000000000asvp at a
+// 1,000,000 gas limit, about 0.025 SVP.
+const (
+	DefaultFeeDenom    = "asvp"
+	DefaultFeeAmount   = "25000000000000000"
+	DefaultFeeGasLimit = uint64(1_000_000)
+)

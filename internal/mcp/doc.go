@@ -1,80 +1,34 @@
-// Package mcp is the root of this repo's copy of svpchain-mcp's lib/mcp: the
-// MCP tool handlers the A2A tool bridge dispatches into, plus the chain
-// clients, tx builders, indexer client, policy engine and auth stores they
-// stand on.
+// Package mcp is what remains of this repo's copy of svpchain-mcp's lib/mcp:
+// the pieces the registration tooling needs to build and sign one transaction.
 //
-// ★ This subtree was absorbed from github.com/svpchain/svpchain-mcp at tag
-// v0.1.0 (commit a9ef41f), which used to be a module dependency of this repo.
-// It follows svpchain-agent-core, absorbed into internal/ by df98513 for the
-// same reason: this binary is meant to build from its own source plus tagged
-// third-party modules, not from a sibling checkout's moving library.
+// ★ It was the whole DEX service — tool handlers, chain clients, tx builders,
+// an indexer client, a policy engine, limits ledgers and auth stores, some
+// 7,000 lines absorbed from github.com/svpchain/svpchain-mcp at tag v0.1.0
+// because this binary served every operation itself. It no longer does. The
+// A2A surface is now a client of svpchain-dex-mcp, which is the same code
+// running where it is maintained, so the fork's whole reason to exist went
+// with the dispatch.
 //
-// Unlike agent-core, svpchain-mcp is NOT retired — it still ships
-// cmd/mcp-server, and svpchain-evm-agent, svpchain-lending-agent,
-// svpchain-research-agent and svpchain-agent-core all still require it. So
-// this is a fork, and upstream fixes no longer arrive on their own. That is
-// the cost of the absorption; the mitigation is that everything here is kept
-// diffable against the tag (see "Re-syncing" below).
+// Four packages survive, and only cmd/agent-register and internal/owner reach
+// them:
 //
-// # Pruned to the perps surface
+//   - chain: dialling gRPC, reading an account's number and sequence, and
+//     broadcasting. Pruned to that; the clob, perpetuals, subaccount and bank
+//     query clients went with the handlers that used them, and the markets
+//     cache with them.
+//   - mcpcodec: the interface registry, so a registration tx encodes.
+//   - signer, payload: signing that tx with the owner key.
 //
-// Only what internal/wire's PerpsProfile registers came across. Dropped
-// wholesale: the lendora/ and bridge/ packages; the lendora, swap, ERC-20/721,
-// EVM and bridge tool families and their builders; chain's EVM JSON-RPC client;
-// builder's oracle/uniswap ABI layers; and tools/registry.go, which was
-// Register(srv *mcp.Server, …) — the MCP-server registration path this binary
-// does not use, since internal/toolbridge bridges these same handlers onto A2A
-// operations instead.
-//
-// The faucet/ package and tools/faucet.go came across and were dropped later,
-// once removed from the surface entirely: what it dispenses is EVM-side and
-// testnet-only. Funding lives in svpchain-evm-agent.
-//
-// Two behaviours changed shape but not observable result, because both were
-// already gated on an EVM client internal/config has no way to configure (no
-// commit in this repo ever added an [evm] section or an evm_rpc_url):
-//
-//   - get_balance no longer merges contract-read ERC-20 balances. That path
-//     short-circuited on a nil EVM client, so it only ever returned nil.
-//   - get_oracle_price is gone. It was kept for a while as a literal refusal,
-//     on the reasoning that dropping it would move the served card for no
-//     behavioural gain. That had it backwards: the tool never returned a price
-//     from this binary in any commit, so no caller could depend on it, and the
-//     card was advertising a capability the agent could not deliver. A working
-//     implementation lives in svpchain-defi-mcp, gated on an oracle address.
-//
-// # Files that are not verbatim
-//
-// Everything here is byte-identical to the tag except its import paths, apart
-// from: tools/handlers.go (symbols rescued from deleted files, marked at their
-// definition), tools/tokens.go (the same, minus the three the faucet was the
-// last caller of — knownTokenSymbol, parseSwapToken, ownerEthAddress — pruned
-// when it went), tools/{account,market,deps}.go (the prunes above),
-// payload/payload.go and signer/signer.go (the EVM half of the signer wire
-// contract, which only the dropped tool families spoke), and the comments —
-// package docs that described a server this binary is not, and
-// cross-references that named the old lib/mcp path.
-//
-// The tree is also gofmt-clean, which upstream's is not (18 files differ there,
-// mostly import ordering and struct-tag alignment). That is deliberate: this
-// repo's `make fmt` runs gofmt -w over everything, so leaving them unformatted
-// would mean the next fmt run silently rewrote a third of the subtree.
-//
-// # Re-syncing
-//
-// To compare a file against its upstream original:
-//
-//	git -C ../svpchain-mcp show v0.1.0:lib/mcp/<pkg>/<file>.go | gofmt | diff - internal/mcp/<pkg>/<file>.go
-//
-// The only expected hunks are the import block and the exceptions listed above.
-// internal/wire mirrors upstream's cmd/mcp-server wiring by hand; drift between
-// the two is a bug in whichever copied last.
+// Registration is the last thing this repo signs. Everything an A2A caller
+// asks for is built by the server and signed by the caller, so if the register
+// command ever moves to its own module, this subtree goes with it and the
+// agent keeps no chain-side code at all.
 //
 // # One hazard worth naming
 //
-// auth/recover.go, mcpcodec/codec.go and signer/signer.go each have an init()
-// that calls appconfig.SetAddressPrefixes(), setting the svp bech32 prefix
-// process-wide. All three are retained, so it fires. A future prune that drops
-// every one of them from a binary's import graph would silently change every
-// sdk.AccAddress string in that binary.
+// mcpcodec/codec.go and signer/signer.go each have an init() calling
+// appconfig.SetAddressPrefixes(), which sets the svp bech32 prefix
+// process-wide. Both are retained, so it fires. A future prune dropping both
+// from a binary's import graph would silently change every sdk.AccAddress
+// string in it.
 package mcp

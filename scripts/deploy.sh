@@ -40,11 +40,10 @@
 #                                  goes via it. Comma-separate to chain hops.
 #                                                         SVPCHAIN_DEPLOY_JUMP_BOX
 #
-# Chain endpoints:
+# Chain (registration only — the agent itself never dials a chain; its
+# operations are served by the MCP server below):
 #   --chain-id <id>                SVPCHAIN_CHAIN_ID     (svp-2517-1)
 #   --grpc-addr <host:port>        SVPCHAIN_GRPC_ADDR    (127.0.0.1:9090)
-#   --comet-rpc <url>              SVPCHAIN_COMET_RPC    (http://127.0.0.1:26657)
-#   --indexer <url>                SVPCHAIN_INDEXER      (http://127.0.0.1:3002)
 #
 # Services:
 #   --mcp-endpoint <url>           The remote MCP server implementing this
@@ -115,14 +114,6 @@
 #   --price-unit <text>            Default "call". SVPCHAIN_OPERATOR_PRICE_UNIT
 #
 # Optional families and tuning:
-#   --markets-refresh <dur>        Default 30s.  SVPCHAIN_MARKETS_REFRESH
-#   --deposit-max-usdc <n>         Caps on funds movements, in human USDC;
-#   --withdraw-max-usdc <n>        unset → no cap.
-#   --transfer-max-usdc <n>        SVPCHAIN_DEPOSIT_MAX_USDC,
-#   --daily-withdraw-cap-usdc <n>  SVPCHAIN_WITHDRAW_MAX_USDC,
-#                                  SVPCHAIN_TRANSFER_MAX_USDC,
-#                                  SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
-#
 # Build and placement:
 #   --image-tag <tag>              Default <git-short-sha>.
 #   --platform <p>                 Default linux/amd64.
@@ -251,17 +242,14 @@ unset _i _j
 # Names the config file may set. Snapshotted before sourcing so anything the
 # caller already exported survives.
 readonly CONFIG_VARS=(
-  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR SVPCHAIN_COMET_RPC
-  SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OWNER_KEY
+  SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
+  SVPCHAIN_PERPS_AGENT_PUBLIC_URL SVPCHAIN_PERPS_AGENT_OWNER_KEY
   SVPCHAIN_REGISTER_GRPC SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
   SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
   SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
   SVPCHAIN_INSTALL_DIR
   SVPCHAIN_MCP_ENDPOINT SVPCHAIN_ANTHROPIC_API_KEY SVPCHAIN_OPENAI_API_KEY
   SVPCHAIN_ASSISTANT_PROVIDER SVPCHAIN_ASSISTANT_BASE_URL SVPCHAIN_ASSISTANT_MODEL
-  SVPCHAIN_MARKETS_REFRESH SVPCHAIN_DEPOSIT_MAX_USDC
-  SVPCHAIN_WITHDRAW_MAX_USDC SVPCHAIN_TRANSFER_MAX_USDC
-  SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
 )
 
 # source_config — source the config file if it exists, refusing one that other
@@ -324,8 +312,6 @@ host=""
 jump_box="${SVPCHAIN_DEPLOY_JUMP_BOX:-}"
 chain_id="${SVPCHAIN_CHAIN_ID:-svp-2517-1}"
 grpc_addr="${SVPCHAIN_GRPC_ADDR:-127.0.0.1:9090}"
-comet_rpc="${SVPCHAIN_COMET_RPC:-http://127.0.0.1:26657}"
-indexer="${SVPCHAIN_INDEXER:-http://127.0.0.1:3002}"
 # The remote MCP server this agent's operations run on. Unlike the chain
 # endpoints above it does NOT default to loopback: there is a deployed server
 # already serving this catalog, and pointing at it is the working default.
@@ -360,11 +346,6 @@ price_unit="${SVPCHAIN_OPERATOR_PRICE_UNIT:-call}"
 install_dir="${SVPCHAIN_INSTALL_DIR:-~/svpchain-perps-agent}"
 image_tag=""
 platform="linux/amd64"
-deposit_max="${SVPCHAIN_DEPOSIT_MAX_USDC:-}"
-withdraw_max="${SVPCHAIN_WITHDRAW_MAX_USDC:-}"
-transfer_max="${SVPCHAIN_TRANSFER_MAX_USDC:-}"
-daily_withdraw_cap="${SVPCHAIN_DAILY_WITHDRAW_CAP_USDC:-}"
-markets_refresh="${SVPCHAIN_MARKETS_REFRESH:-30s}"
 skip_build="0"
 dry_run="0"
 # --register only. Deliberately not a config setting: the bond is a decision
@@ -392,8 +373,6 @@ while [[ $# -gt 0 ]]; do
     --jump-box)               jump_box="$2"; mark_flag SVPCHAIN_DEPLOY_JUMP_BOX;      shift 2 ;;
     --chain-id)               chain_id="$2"; mark_flag SVPCHAIN_CHAIN_ID;          shift 2 ;;
     --grpc-addr)              grpc_addr="$2"; mark_flag SVPCHAIN_GRPC_ADDR;         shift 2 ;;
-    --comet-rpc)              comet_rpc="$2"; mark_flag SVPCHAIN_COMET_RPC;         shift 2 ;;
-    --indexer)                indexer="$2"; mark_flag SVPCHAIN_INDEXER;           shift 2 ;;
     --mcp-endpoint)           mcp_endpoint="$2"; mark_flag SVPCHAIN_MCP_ENDPOINT;   shift 2 ;;
     --assistant-provider)     assistant_provider="$2"; mark_flag SVPCHAIN_ASSISTANT_PROVIDER; shift 2 ;;
     --assistant-base-url)     assistant_base_url="$2"; mark_flag SVPCHAIN_ASSISTANT_BASE_URL; shift 2 ;;
@@ -406,11 +385,6 @@ while [[ $# -gt 0 ]]; do
     --install-dir)            install_dir="$2"; mark_flag SVPCHAIN_INSTALL_DIR;       shift 2 ;;
     --image-tag)              image_tag="$2";         shift 2 ;;
     --platform)               platform="$2";          shift 2 ;;
-    --deposit-max-usdc)       deposit_max="$2"; mark_flag SVPCHAIN_DEPOSIT_MAX_USDC;       shift 2 ;;
-    --withdraw-max-usdc)      withdraw_max="$2"; mark_flag SVPCHAIN_WITHDRAW_MAX_USDC;      shift 2 ;;
-    --transfer-max-usdc)      transfer_max="$2"; mark_flag SVPCHAIN_TRANSFER_MAX_USDC;      shift 2 ;;
-    --daily-withdraw-cap-usdc) daily_withdraw_cap="$2"; mark_flag SVPCHAIN_DAILY_WITHDRAW_CAP_USDC; shift 2 ;;
-    --markets-refresh)        markets_refresh="$2"; mark_flag SVPCHAIN_MARKETS_REFRESH;   shift 2 ;;
     # Already handled by the pre-scan above; consumed here so they are not
     # rejected as unknown.
     --config-dir)             mark_flag SVPCHAIN_CONFIG_DIR; shift 2 ;;
@@ -480,25 +454,10 @@ render_agent_toml() {
 # Auto-generated by scripts/deploy.sh — do not edit by hand.
 # Agent: ${AGENT_NAME}
 
-listen_addr      = "0.0.0.0:${AGENT_PORT}"
-public_url       = "${public_url}"
-broadcast_mode   = "server"
-EOF
-  # Persist per-symbol transfer-out caps on the agent's own writable data
-  # volume (the config dir holds only read-only mounts) — the path is under the
-  # agent's name because that is what the compose service mounts
-  # ${install_dir}/data onto. See render_compose_yaml.
-  echo "transfer_out_cap_path   = \"/var/lib/${AGENT_NAME}/transfer-out-caps.json\""
-  cat <<EOF
+listen_addr = "0.0.0.0:${AGENT_PORT}"
+public_url  = "${public_url}"
 
-[dex_chain]
-id               = "${chain_id}"
-grpc_addr        = "${grpc_addr}"
-comet_rpc_url    = "${comet_rpc}"
-indexer_base_url = "${indexer}"
-EOF
-  cat <<EOF
-
+# Every operation this agent serves is one call to this server.
 [mcp]
 endpoint = "${mcp_endpoint}"
 EOF
@@ -509,32 +468,9 @@ EOF
     [[ -n "$assistant_base_url" ]] && echo "base_url = \"${assistant_base_url}\""
     [[ -n "$assistant_model"    ]] && echo "model    = \"${assistant_model}\""
   fi
-  cat <<EOF
-
-[cache]
-markets_refresh = "${markets_refresh}"
-EOF
-  if [[ -n "${deposit_max}${withdraw_max}${transfer_max}${daily_withdraw_cap}" ]]; then
-    echo ""
-    echo "[limits]"
-    [[ -n "$deposit_max"        ]] && echo "deposit_max_usdc        = ${deposit_max}"
-    [[ -n "$withdraw_max"       ]] && echo "withdraw_max_usdc       = ${withdraw_max}"
-    [[ -n "$transfer_max"       ]] && echo "transfer_max_usdc       = ${transfer_max}"
-    [[ -n "$daily_withdraw_cap" ]] && echo "daily_withdraw_cap_usdc = ${daily_withdraw_cap}"
-  fi
   # Explicit, because the block above ends on a `[[ … ]] && echo` whose false
   # branch would otherwise be this function's exit status — and under `set -e`
   # the `render_agent_toml > file` call site would exit the script silently.
-  return 0
-}
-
-# render_assistant_env — emit the env file carrying the model API key. Written
-# only when a key is configured; see the uninstall of a stale one at the ship
-# step, which is what makes unsetting the key actually turn the skill off.
-render_assistant_env() {
-  echo "# Auto-generated by scripts/deploy.sh — do not edit by hand."
-  [[ -n "$anthropic_api_key" ]] && echo "ANTHROPIC_API_KEY=${anthropic_api_key}"
-  [[ -n "$openai_api_key"    ]] && echo "OPENAI_API_KEY=${openai_api_key}"
   return 0
 }
 
@@ -925,30 +861,24 @@ if [[ "$mode" == "print-env" ]]; then
   # rather than an associative array, because macOS still ships bash 3.2.
   env_names=(
     SVPCHAIN_CONFIG_DIR SVPCHAIN_DEPLOY_HOST SVPCHAIN_DEPLOY_JUMP_BOX SVPCHAIN_CHAIN_ID SVPCHAIN_GRPC_ADDR
-    SVPCHAIN_COMET_RPC SVPCHAIN_INDEXER SVPCHAIN_PERPS_AGENT_PUBLIC_URL
+    SVPCHAIN_PERPS_AGENT_PUBLIC_URL
     SVPCHAIN_PERPS_AGENT_OWNER_KEY SVPCHAIN_REGISTER_GRPC
     SVPCHAIN_AGENT_CHAIN_ID SVPCHAIN_AGENT_CHAIN_REST
     SVPCHAIN_OPERATOR_CAPABILITIES SVPCHAIN_OPERATOR_METADATA
     SVPCHAIN_OPERATOR_PRICE_AMOUNT SVPCHAIN_OPERATOR_PRICE_UNIT
     SVPCHAIN_MCP_ENDPOINT SVPCHAIN_ANTHROPIC_API_KEY SVPCHAIN_OPENAI_API_KEY
     SVPCHAIN_ASSISTANT_PROVIDER SVPCHAIN_ASSISTANT_BASE_URL SVPCHAIN_ASSISTANT_MODEL
-    SVPCHAIN_MARKETS_REFRESH
-    SVPCHAIN_DEPOSIT_MAX_USDC SVPCHAIN_WITHDRAW_MAX_USDC
-    SVPCHAIN_TRANSFER_MAX_USDC SVPCHAIN_DAILY_WITHDRAW_CAP_USDC
     SVPCHAIN_INSTALL_DIR
   )
   env_values=(
     "$config_dir" "$host" "$jump_box" "$chain_id" "$grpc_addr"
-    "$comet_rpc" "$indexer" "$public_url"
+    "$public_url"
     "$owner_key" "$register_grpc"
     "$agent_chain_id" "$agent_chain_rest"
     "$operator_capabilities" "$operator_metadata"
     "$price_amount" "$price_unit"
     "$mcp_endpoint" "$anthropic_api_key" "$openai_api_key"
     "$assistant_provider" "$assistant_base_url" "$assistant_model"
-    "$markets_refresh"
-    "$deposit_max" "$withdraw_max"
-    "$transfer_max" "$daily_withdraw_cap"
     "$install_dir"
   )
 

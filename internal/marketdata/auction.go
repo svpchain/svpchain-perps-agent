@@ -1,21 +1,43 @@
-// Package marketdata is the read layer of the DEX agent: everything it can
-// answer from public indexer data, with no credential and no svpchain account.
+// Package marketdata holds this agent's one piece of domain logic: a
+// batch-auction clearing-price estimate.
 //
-// The one piece of domain logic that belongs here — and the only one the thin
-// shell is allowed to carry — is a batch-auction clearing-price estimate. A
-// market that clears by uniform-price batch auction rather than continuous
-// matching cannot be reasoned about with a single top-of-book price, so an
+// A market that clears by uniform-price batch auction rather than continuous
+// matching cannot be reasoned about from a single top-of-book price, so an
 // agent deciding whether to trade needs an estimate of the price a given size
-// would clear at. Nothing else here is opinionated; it reshapes indexer data.
+// would clear at. No MCP tool computes it, which is why it lives here.
+//
+// ★ This used to be a whole read layer: a service reshaping indexer data,
+// answering market questions with no credential and no account, reachable
+// through a {"skill":…,"query":…} form that predated the tool envelope. All of
+// that is gone. The MCP server gates every tool behind a bearer, so an
+// uncredentialed path could not move onto it, and keeping a direct indexer
+// client alive just to serve one was the last thing tying this agent to an
+// endpoint it otherwise has no reason to know about. The estimate stays, fed
+// by a proxied get_orderbook, and is authenticated like everything else.
 package marketdata
 
 import (
 	"fmt"
 	"math/big"
 	"sort"
-
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 )
+
+// Orderbook is the resting book a clearing estimate walks, decoded from the
+// MCP server's get_orderbook reply.
+//
+// Declared here rather than imported so this package owns its own input: it is
+// the only reason the agent would otherwise need a chain-side client at all.
+type Orderbook struct {
+	Bids []PriceLevel `json:"bids"`
+	Asks []PriceLevel `json:"asks"`
+}
+
+// PriceLevel is one resting level. Both fields are decimal strings, as the
+// indexer publishes them.
+type PriceLevel struct {
+	Price string `json:"price"`
+	Size  string `json:"size"`
+}
 
 // Side is which way a taker order crosses the book.
 type Side string
@@ -70,7 +92,7 @@ type ClearingEstimate struct {
 // big.Rat rather than float64: a basis-point slippage figure a trader relies on
 // must not carry binary-float rounding, and sizes here can span many orders of
 // magnitude.
-func EstimateClearing(ticker string, side Side, ob *indexer.Orderbook, size string) (*ClearingEstimate, error) {
+func EstimateClearing(ticker string, side Side, ob *Orderbook, size string) (*ClearingEstimate, error) {
 	want, ok := new(big.Rat).SetString(size)
 	if !ok || want.Sign() <= 0 {
 		return nil, fmt.Errorf("size %q is not a positive decimal", size)
@@ -140,8 +162,8 @@ type level struct {
 // sell. The indexer does not promise an order, so this sorts rather than trusts
 // the snapshot — an unsorted walk would price the order against the wrong
 // levels and quietly report a better fill than exists.
-func restingLevels(side Side, ob *indexer.Orderbook) ([]level, error) {
-	var raw []indexer.OrderbookPriceLevel
+func restingLevels(side Side, ob *Orderbook) ([]level, error) {
+	var raw []PriceLevel
 	switch side {
 	case Buy:
 		raw = ob.Asks

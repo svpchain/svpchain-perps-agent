@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
 	"github.com/svpchain/svpchain-perps-agent/internal/owner"
@@ -46,13 +45,14 @@ func TestDeployScriptConfigParses(t *testing.T) {
 			"--print-config", "--host", "www@agent.example.com",
 			"--public-url", "https://agents.example.com",
 		},
-		// Every optional block the script can render, on at once, so a typo in
-		// one of those heredocs fails here rather than on a remote host.
-		"all-optionals": {
+		// The assistant block, which is the only optional one left to render:
+		// the chain endpoints, fee, cache and limits blocks configured the
+		// in-process copy of the MCP server and are that server's settings now.
+		"assistant": {
 			"--print-config", "--host", "www@agent.example.com",
-			"--deposit-max-usdc", "1000", "--withdraw-max-usdc", "500",
-			"--transfer-max-usdc", "250", "--daily-withdraw-cap-usdc", "2000",
-			"--markets-refresh", "60s",
+			"--assistant-provider", "openai",
+			"--assistant-base-url", "https://api.deepseek.com",
+			"--assistant-model", "deepseek-v4-pro",
 		},
 	}
 
@@ -73,8 +73,11 @@ func TestDeployScriptConfigParses(t *testing.T) {
 			if cfg.PublicURL == "" {
 				t.Error("rendered config must carry a public_url")
 			}
-			if name == "all-optionals" && cfg.Limits.DepositMaxUSDC != 1000 {
-				t.Errorf("deposit_max_usdc = %d, want 1000", cfg.Limits.DepositMaxUSDC)
+			if cfg.MCP.Endpoint == "" {
+				t.Error("rendered config must name the MCP server every operation runs on")
+			}
+			if name == "assistant" && cfg.Assistant.Model != "deepseek-v4-pro" {
+				t.Errorf("assistant model = %q, want deepseek-v4-pro", cfg.Assistant.Model)
 			}
 		})
 	}
@@ -175,37 +178,25 @@ func TestDeployScriptReadsConfigFile(t *testing.T) {
 
 	t.Run("scalars come from the file", func(t *testing.T) {
 		cfg := load(t)
-		if cfg.DEXChain.ID != "svp-from-file-1" {
-			t.Errorf("chain id = %q, want the file's", cfg.DEXChain.ID)
-		}
 		if cfg.PublicURL != "https://perps.example.org" {
 			t.Errorf("public_url = %q, want the file's value verbatim", cfg.PublicURL)
 		}
-	})
-
-	// These two had no env var at all before the config file existed — they
-	// were flag-only, so the file is the first thing that can set them.
-	t.Run("tuning and caps come from the file", func(t *testing.T) {
-		cfg := load(t)
-		if cfg.Limits.WithdrawMaxUSDC != 777 {
-			t.Errorf("withdraw cap = %d, want the file's 777", cfg.Limits.WithdrawMaxUSDC)
-		}
-		if got := time.Duration(cfg.Cache.MarketsRefresh); got != 90*time.Second {
-			t.Errorf("markets refresh = %s, want the file's 90s", got)
+		if cfg.MCP.Endpoint == "" {
+			t.Error("the rendered config names no MCP server")
 		}
 	})
 
 	t.Run("a flag overrides the file", func(t *testing.T) {
-		cfg := load(t, "--chain-id", "svp-from-flag-1")
-		if cfg.DEXChain.ID != "svp-from-flag-1" {
-			t.Errorf("chain id = %q, want the flag's", cfg.DEXChain.ID)
+		cfg := load(t, "--mcp-endpoint", "https://mcp-from-flag.example")
+		if cfg.MCP.Endpoint != "https://mcp-from-flag.example" {
+			t.Errorf("mcp endpoint = %q, want the flag's", cfg.MCP.Endpoint)
 		}
 	})
 
 	t.Run("--no-config ignores the file", func(t *testing.T) {
 		cfg := load(t, "--no-config")
-		if cfg.DEXChain.ID == "svp-from-file-1" {
-			t.Errorf("chain id = %q, want the built-in default", cfg.DEXChain.ID)
+		if cfg.PublicURL == "https://perps.example.org" {
+			t.Errorf("public_url = %q, want the built-in default", cfg.PublicURL)
 		}
 	})
 

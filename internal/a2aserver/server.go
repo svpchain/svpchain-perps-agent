@@ -13,8 +13,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
-	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
-	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 	"github.com/svpchain/svpchain-perps-agent/internal/wire"
 )
 
@@ -23,20 +21,7 @@ import (
 // callers onto tool tenants. It runs the app's background caches alongside
 // the HTTP server and stops both when ctx is cancelled or either fails.
 func StartFullFor(ctx context.Context, cfg *config.Config, app *wire.App, ident CardIdentity) error {
-	// The legacy {"skill":"svpchain-market-data","query":…} path answers from
-	// this service before the registry is consulted, so a binary that does not
-	// register the market-data family must not construct it — otherwise it
-	// would serve queries its card never advertises.
-	var market *marketdata.Service
-	if len(app.Registry.BySkill()[toolbridge.SkillMarketData]) > 0 {
-		market = marketdata.NewService(app.Indexer)
-	}
-
-	executor := NewFullExecutor(
-		market,
-		app.Registry,
-		&AuthResolver{},
-	)
+	executor := NewFullExecutor(app.Registry, &AuthResolver{})
 
 	card := BuildAgentCardFor(ident, cfg.PublicURL, app.Registry)
 
@@ -48,7 +33,7 @@ func StartFullFor(ctx context.Context, cfg *config.Config, app *wire.App, ident 
 
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- serve(ctx, cfg.ListenAddr, cfg.PublicURL, cfg.DEXChain.IndexerBaseURL, executor, card)
+		serveErr <- serve(ctx, cfg.ListenAddr, cfg.PublicURL, app.MCP.Endpoint(), executor, card)
 	}()
 
 	// Either half failing takes the whole agent down: a dead markets cache
@@ -68,7 +53,7 @@ func StartFullFor(ctx context.Context, cfg *config.Config, app *wire.App, ident 
 	}
 }
 
-func serve(ctx context.Context, listenAddr, publicURL, indexerURL string, executor *Executor, card *a2a.AgentCard) error {
+func serve(ctx context.Context, listenAddr, publicURL, mcpEndpoint string, executor *Executor, card *a2a.AgentCard) error {
 	handler := a2asrv.NewHandler(executor)
 	mux := http.NewServeMux()
 	mux.Handle("/invoke", a2asrv.NewJSONRPCHandler(handler))
@@ -94,7 +79,7 @@ func serve(ctx context.Context, listenAddr, publicURL, indexerURL string, execut
 
 	fmt.Fprintf(os.Stderr, "%s: listening on %s\n", card.Name, listenAddr)
 	fmt.Fprintf(os.Stderr, "%s: agent card at %s%s\n", card.Name, publicURL, a2asrv.WellKnownAgentCardPath)
-	fmt.Fprintf(os.Stderr, "%s: reading indexer at %s\n", card.Name, indexerURL)
+	fmt.Fprintf(os.Stderr, "%s: operations served by %s\n", card.Name, mcpEndpoint)
 
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

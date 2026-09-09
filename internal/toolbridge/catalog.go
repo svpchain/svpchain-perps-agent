@@ -6,7 +6,8 @@ import "sort"
 // any MCP server. They are excluded from a catalog comparison because a remote
 // that does not serve them is not drifting — it was never meant to.
 var agentOwnedTools = map[string]bool{
-	"list_tools": true,
+	"list_tools":          true,
+	EstimateClearingPrice: true,
 }
 
 // CatalogDiff is how a remote MCP server's tool list differs from the surface

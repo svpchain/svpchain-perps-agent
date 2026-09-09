@@ -3,18 +3,16 @@ package marketdata_test
 import (
 	"testing"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
-
 	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
 )
 
-func book(bids, asks [][2]string) *indexer.Orderbook {
-	ob := &indexer.Orderbook{}
+func book(bids, asks [][2]string) *marketdata.Orderbook {
+	ob := &marketdata.Orderbook{}
 	for _, b := range bids {
-		ob.Bids = append(ob.Bids, indexer.OrderbookPriceLevel{Price: b[0], Size: b[1]})
+		ob.Bids = append(ob.Bids, marketdata.PriceLevel{Price: b[0], Size: b[1]})
 	}
 	for _, a := range asks {
-		ob.Asks = append(ob.Asks, indexer.OrderbookPriceLevel{Price: a[0], Size: a[1]})
+		ob.Asks = append(ob.Asks, marketdata.PriceLevel{Price: a[0], Size: a[1]})
 	}
 	return ob
 }

@@ -24,12 +24,9 @@ SVPCHAIN_DEPLOY_HOST="www@svpdev1.example.com"
 # this machine directly. Comma-separate to chain several hops.
 #SVPCHAIN_DEPLOY_JUMP_BOX="ops@bastion.example.com"
 
-# The DEX chain, as reached from the deploy host itself — the container runs
-# with network_mode: host, so 127.0.0.1 here means the host's own loopback.
+# The chain, for --register only. The agent itself never dials a chain: every
+# operation it serves is a call to the MCP server below.
 SVPCHAIN_CHAIN_ID="svp-2517-1"
-SVPCHAIN_GRPC_ADDR="127.0.0.1:9090"
-SVPCHAIN_COMET_RPC="http://127.0.0.1:26657"
-SVPCHAIN_INDEXER="http://127.0.0.1:3002"
 
 # The remote MCP server this agent's operations run on (svpchain-dex-mcp). It
 # serves MCP at the root of its listener, so this is an origin and not a path.
@@ -114,16 +111,7 @@ SVPCHAIN_OPERATOR_METADATA="svpchain perps agent"
 SVPCHAIN_OPERATOR_PRICE_AMOUNT="1000000"
 SVPCHAIN_OPERATOR_PRICE_UNIT="call"
 
-# ---- optional families and tuning ------------------------------------------
-
-# How often the markets cache refreshes.
-#SVPCHAIN_MARKETS_REFRESH="30s"
-
-# Caps on funds movements, in human USDC. Unset means no cap.
-#SVPCHAIN_DEPOSIT_MAX_USDC="10000"
-#SVPCHAIN_WITHDRAW_MAX_USDC="10000"
-#SVPCHAIN_TRANSFER_MAX_USDC="10000"
-#SVPCHAIN_DAILY_WITHDRAW_CAP_USDC="50000"
+# ---- install location ------------------------------------------------------
 
 # Where the agent is installed on the remote host.
 #SVPCHAIN_INSTALL_DIR="~/svpchain-perps-agent"

@@ -8,7 +8,6 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
@@ -25,7 +24,7 @@ import (
 func newAuthedStack(t *testing.T) (*Executor, *toolbridge.Registry) {
 	t.Helper()
 	reg := toolbridge.NewRemote(nil)
-	return NewFullExecutor(marketdata.NewService(fakeReader{}), reg, &AuthResolver{}), reg
+	return NewFullExecutor(reg, &AuthResolver{}), reg
 }
 
 // dispatch runs one envelope through the executor and decodes the Response.

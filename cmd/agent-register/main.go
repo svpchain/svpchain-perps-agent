@@ -69,7 +69,6 @@ import (
 	agenttypes "github.com/dydxprotocol/v4-chain/protocol/x/agent/types"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/agentchain"
-	"github.com/svpchain/svpchain-perps-agent/internal/config"
 	"github.com/svpchain/svpchain-perps-agent/internal/owner"
 )
 
@@ -115,9 +114,9 @@ func main() {
 	flag.StringVar(&o.metadata, "metadata", "", "opaque owner metadata; empty leaves an existing value alone")
 	flag.StringVar(&o.priceAmount, "price-amount", "", "fee per -price-unit as a positive integer in the settlement token's smallest unit; required to register, empty on an update leaves the registered pricing alone")
 	flag.StringVar(&o.priceUnit, "price-unit", "call", "unit the price is quoted against")
-	flag.StringVar(&o.feeDenom, "fee-denom", config.DefaultFeeDenom, "fee denom")
-	flag.StringVar(&o.feeAmount, "fee-amount", config.DefaultFeeAmount, "fee amount")
-	flag.Uint64Var(&o.gasLimit, "gas-limit", config.DefaultFeeGasLimit, "gas limit")
+	flag.StringVar(&o.feeDenom, "fee-denom", agentchain.DefaultFeeDenom, "fee denom")
+	flag.StringVar(&o.feeAmount, "fee-amount", agentchain.DefaultFeeAmount, "fee amount")
+	flag.Uint64Var(&o.gasLimit, "gas-limit", agentchain.DefaultFeeGasLimit, "gas limit")
 	flag.BoolVar(&o.dryRun, "dry-run", false, "print what would be submitted and exit without broadcasting")
 	flag.DurationVar(&o.timeout, "timeout", 90*time.Second, "deadline for the whole exchange")
 	flag.Parse()
