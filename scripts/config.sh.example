@@ -90,9 +90,14 @@ SVPCHAIN_PERPS_AGENT_PUBLIC_URL="https://perps-agent.svpchain.org"
 # every command would then die on that instead of running keyless as intended.
 #SVPCHAIN_PERPS_AGENT_OWNER_KEY="$(cat "$HOME/.config/svpchain-perps-agent/owner.key")"
 
-# gRPC endpoint reachable from THIS machine, used only by --register.
-# SVPCHAIN_GRPC_ADDR above is the address the deployed container dials, which
-# on a normal deployment is meaningful only on the remote host.
+# The registry chain's gRPC port as reachable from THIS machine, used only by
+# --register and only when the REST route below is unset. Registration is
+# signed and broadcast here, not on the deploy host. Defaults to
+# 127.0.0.1:9090, which suits a local dev node and little else.
+#
+# Formerly SVPCHAIN_GRPC_ADDR, back when it named the address the deployed
+# container dialled. The container dials no chain now. The old name is still
+# honoured, with a warning.
 #SVPCHAIN_REGISTER_GRPC="grpc.testnet.svpchain.org:443"
 
 # Or reach the chain carrying x/agent over its Cosmos REST API instead (the
