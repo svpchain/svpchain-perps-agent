@@ -5,26 +5,16 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type metaIn struct {
 	Ticker string `json:"ticker" jsonschema:"market to read, e.g. BTC-USD"`
 }
 
-type metaOut struct {
-	Value string `json:"value"`
-}
-
 func metaRegistry() *Registry {
 	r := newRegistry()
-	r.add("skill-a", "read_thing", adapt(func(_ context.Context, _ *mcp.CallToolRequest, in metaIn) (*mcp.CallToolResult, metaOut, error) {
-		return nil, metaOut{Value: in.Ticker}, nil
-	}))
-	r.add("skill-b", "other_thing", adapt(func(_ context.Context, _ *mcp.CallToolRequest, in metaIn) (*mcp.CallToolResult, metaOut, error) {
-		return nil, metaOut{}, nil
-	}))
+	r.add("skill-a", "read_thing", Bound{InputSchema: schemaFor[metaIn]()})
+	r.add("skill-b", "other_thing", Bound{InputSchema: schemaFor[metaIn]()})
 	r.RegisterMeta()
 	return r
 }

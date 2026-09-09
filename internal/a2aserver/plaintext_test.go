@@ -29,9 +29,9 @@ func (s *stubAsk) register(r *toolbridge.Registry) {
 // answering it is what made this agent the only one in the fleet that could
 // not take a question.
 func TestPlainTextBecomesAnAssistantQuestion(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
+	e, reg := newAuthedStack(t)
 	stub := &stubAsk{}
-	stub.register(e.registry)
+	stub.register(reg)
 
 	const question = "Do you offer a tool to look up an account's balance on svpchain?"
 	resp := dispatch(t, e, execCtxFor(question))
@@ -51,7 +51,7 @@ func TestPlainTextBecomesAnAssistantQuestion(t *testing.T) {
 // original said only "request must be JSON naming a skill", which leaves a
 // caller with nothing to try.
 func TestPlainTextWithoutAnAssistantExplainsTheEnvelope(t *testing.T) {
-	e, _, _ := newAuthedStack(t) // no assistant registered
+	e, _ := newAuthedStack(t) // no assistant registered
 
 	_, err := e.handle(context.Background(), execCtxFor("what is my balance?"))
 	if err == nil {
@@ -70,8 +70,8 @@ func TestPlainTextWithoutAnAssistantExplainsTheEnvelope(t *testing.T) {
 // And with one, the refusal for a malformed envelope should say plain English
 // is available.
 func TestEnvelopeErrorMentionsPlainEnglishWhenServed(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
-	(&stubAsk{}).register(e.registry)
+	e, reg := newAuthedStack(t)
+	(&stubAsk{}).register(reg)
 
 	// Valid JSON, but not an envelope: not a question, so it stays an error.
 	_, err := e.handle(context.Background(), execCtxFor(`{"foo":1}`))
@@ -84,9 +84,9 @@ func TestEnvelopeErrorMentionsPlainEnglishWhenServed(t *testing.T) {
 }
 
 func TestEmptyMessageIsNotAQuestion(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
+	e, reg := newAuthedStack(t)
 	stub := &stubAsk{}
-	stub.register(e.registry)
+	stub.register(reg)
 
 	if _, err := e.handle(context.Background(), execCtxFor("   ")); err == nil {
 		t.Error("whitespace was routed as a question")
@@ -99,9 +99,9 @@ func TestEmptyMessageIsNotAQuestion(t *testing.T) {
 // A caller that names its tool must never reach a model: that is the whole
 // point of the envelope staying a lookup.
 func TestNamedToolStillBypassesTheAssistant(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
+	e, reg := newAuthedStack(t)
 	stub := &stubAsk{}
-	stub.register(e.registry)
+	stub.register(reg)
 
 	resp := dispatch(t, e, execCtxFor(`{"skill":"svpchain-account","tool":"whoami"}`))
 	if resp.Tool != "whoami" {

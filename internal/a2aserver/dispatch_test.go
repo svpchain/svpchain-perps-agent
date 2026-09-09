@@ -2,77 +2,30 @@ package a2aserver
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
-	"github.com/cosmos/evm/crypto/ethsecp256k1"
-
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/signer"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
 
-// tenantAdapter mirrors the wire-level adapter: auto-issued tenants resolve
-// through the dynamic store.
-type tenantAdapter struct{ store *auth.DynamicTenantStore }
-
-func (a tenantAdapter) LookupTenantPolicy(tenantID string) (policy.TenantPolicy, bool) {
-	rec, err := a.store.LookupByTenantID(tenantID)
-	if err != nil {
-		return policy.TenantPolicy{}, false
-	}
-	return policy.TenantPolicy{
-		TenantID:           rec.TenantID,
-		Owner:              rec.Owner,
-		AllowedSubaccounts: rec.AllowedSubaccounts,
-		KillSwitch:         rec.KillSwitch,
-	}, true
-}
-
-// newAuthedStack wires just enough of the full executor to exercise the
-// dispatch + auth path: the auth tools, whoami, and the resolver — no chain,
-// no indexer beyond the fake reader.
-func newAuthedStack(t *testing.T) (*Executor, *auth.DynamicTenantStore, *auth.SessionBearers) {
+// newAuthedStack builds the executor in the shape a deployment runs: the whole
+// proxied surface plus the resolver that carries a caller's bearer onto it.
+//
+// ★ It used to build a great deal more — a tenant store, a nonce store, an IP
+// limiter, a policy engine — because auth_challenge and auth_verify ran in
+// this process and minted into local state. They are two more proxied tools
+// now, so the whole flow lives on the MCP server and there is no local state
+// left to construct or to test. What is left to test here is that a caller's
+// bearer reaches the operation, which is this package's actual job.
+func newAuthedStack(t *testing.T) (*Executor, *toolbridge.Registry) {
 	t.Helper()
-	tenants := auth.NewDynamicTenantStore(auth.DynamicTenantStoreConfig{
-		BearerTTL:                 auth.DefaultBearerTTL,
-		DefaultAllowedSubaccounts: []uint32{0, 1},
-	}, nil)
-	sessions := auth.NewSessionBearers(auth.DefaultBearerTTL, nil)
-	engine := policy.NewEngine(nil)
-	engine.SetDynamicSource(tenantAdapter{store: tenants})
-
-	h := tools.New("svp-test-1", tools.Deps{
-		NonceStore:       auth.NewNonceStore(auth.DefaultChallengeTTL, nil),
-		DynamicTenants:   tenants,
-		IPChallengeLimit: auth.NewIPRateLimiter(100, time.Minute, nil),
-		SessionBearers:   sessions,
-		Policy:           engine,
-		RateLimit:        policy.NewRateLimiter(0, 0),
-		BroadcastMode:    "server",
-	})
-	exec := NewFullExecutor(
-		marketdata.NewService(fakeReader{}),
-		toolbridge.New(h),
-		&AuthResolver{Tenants: tenants, Sessions: sessions},
-	)
-	return exec, tenants, sessions
-}
-
-func execCtxWithContextID(raw, contextID string) *a2asrv.ExecutorContext {
-	ec := execCtxFor(raw)
-	ec.ContextID = contextID
-	return ec
+	reg := toolbridge.NewRemote(nil)
+	return NewFullExecutor(marketdata.NewService(fakeReader{}), reg, &AuthResolver{}), reg
 }
 
 // dispatch runs one envelope through the executor and decodes the Response.
@@ -89,102 +42,100 @@ func dispatch(t *testing.T, e *Executor, ec *a2asrv.ExecutorContext) Response {
 	return resp
 }
 
-func resultField(t *testing.T, resp Response, key string) string {
-	t.Helper()
-	m, ok := resp.Result.(map[string]any)
-	if !ok {
-		t.Fatalf("result is not an object: %+v", resp.Result)
-	}
-	v, _ := m[key].(string)
-	return v
-}
-
-// The critical M1 path: auth_challenge → wallet-sign → auth_verify over the
-// A2A envelope, then a gated tool (whoami) authenticated three ways — session
-// binding, envelope bearer — and refused when unauthenticated.
-func TestEnvelopeAuthFlowEndToEnd(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
-
-	bz := make([]byte, 32)
-	if _, err := rand.Read(bz); err != nil {
-		t.Fatal(err)
-	}
-	priv := &ethsecp256k1.PrivKey{Key: bz}
-	owner := signer.DeriveAddress(priv)
-
-	// 1. Challenge.
-	ch := dispatch(t, e, execCtxFor(
-		`{"skill":"svpchain-auth","tool":"auth_challenge","args":{"owner":"`+owner+`"}}`))
-	if !ch.OK {
-		t.Fatalf("auth_challenge refused: %s", ch.Error)
-	}
-	challenge, nonce := resultField(t, ch, "challenge"), resultField(t, ch, "nonce")
-
-	// 2. Sign + verify on A2A context "conv-1" — the bearer binds to it.
-	sig, err := priv.Sign([]byte(challenge))
-	if err != nil {
-		t.Fatal(err)
-	}
-	vf := dispatch(t, e, execCtxWithContextID(
-		`{"skill":"svpchain-auth","tool":"auth_verify","args":{"nonce":"`+nonce+
-			`","signature":"`+base64.StdEncoding.EncodeToString(sig)+`"}}`, "conv-1"))
-	if !vf.OK {
-		t.Fatalf("auth_verify refused: %s", vf.Error)
-	}
-	bearer := resultField(t, vf, "bearer_token")
-	if bearer == "" {
-		t.Fatal("auth_verify minted no bearer")
-	}
-
-	// 3a. whoami via the session-bound bearer (same context id, no header).
-	who := dispatch(t, e, execCtxWithContextID(
-		`{"skill":"svpchain-account","tool":"whoami"}`, "conv-1"))
-	if !who.OK {
-		t.Fatalf("whoami via session binding refused: %s", who.Error)
-	}
-	if got := resultField(t, who, "owner"); got != owner {
-		t.Errorf("whoami owner = %q, want %q", got, owner)
-	}
-
-	// 3b. whoami via the envelope bearer on a fresh context.
-	who2 := dispatch(t, e, execCtxFor(
-		`{"skill":"svpchain-account","tool":"whoami","bearer":"`+bearer+`"}`))
-	if !who2.OK {
-		t.Fatalf("whoami via envelope bearer refused: %s", who2.Error)
-	}
-
-	// 3c. Unauthenticated whoami refuses with the handshake hint.
-	who3 := dispatch(t, e, execCtxFor(`{"skill":"svpchain-account","tool":"whoami"}`))
-	if who3.OK {
-		t.Fatal("unauthenticated whoami must refuse")
-	}
-	if !strings.Contains(who3.Error, "auth_challenge") {
-		t.Errorf("refusal should point at the auth flow, got: %s", who3.Error)
-	}
-}
-
-func TestBearerRidesTheAuthorizationHeader(t *testing.T) {
-	e, tenants, _ := newAuthedStack(t)
-	bearer, _, _, err := tenants.Mint("svp1headerowner")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ec := execCtxFor(`{"skill":"svpchain-account","tool":"whoami"}`)
-	ec.ServiceParams = a2asrv.NewServiceParams(map[string][]string{
-		"Authorization": {"Bearer " + bearer},
+// capture records the identity an operation was dispatched with.
+func capture(r *toolbridge.Registry, skill, tool string, into *mcpclient.Identity) {
+	r.AddOpForTest(skill, tool, func(ctx context.Context, _ json.RawMessage) (any, error) {
+		id, _ := mcpclient.CallerFrom(ctx)
+		*into = id
+		return map[string]any{"ok": true}, nil
 	})
-	resp := dispatch(t, e, ec)
-	if !resp.OK {
-		t.Fatalf("whoami via Authorization header refused: %s", resp.Error)
+}
+
+// ★ The bearer is what an operation runs as, so how it is found is the whole
+// contract this package owns. Three sources, in precedence order.
+func TestBearerReachesTheOperation(t *testing.T) {
+	t.Run("authorization header", func(t *testing.T) {
+		e, reg := newAuthedStack(t)
+		var got mcpclient.Identity
+		capture(reg, "skill-x", "probe", &got)
+
+		ec := execCtxFor(`{"skill":"skill-x","tool":"probe"}`)
+		ec.ServiceParams = a2asrv.NewServiceParams(map[string][]string{
+			"Authorization": {"Bearer header-token"},
+		})
+		if resp := dispatch(t, e, ec); !resp.OK {
+			t.Fatalf("refused: %s", resp.Error)
+		}
+		if got.Bearer != "header-token" {
+			t.Errorf("bearer = %q", got.Bearer)
+		}
+	})
+
+	t.Run("envelope field", func(t *testing.T) {
+		e, reg := newAuthedStack(t)
+		var got mcpclient.Identity
+		capture(reg, "skill-x", "probe", &got)
+
+		dispatch(t, e, execCtxFor(`{"skill":"skill-x","tool":"probe","bearer":"envelope-token"}`))
+		if got.Bearer != "envelope-token" {
+			t.Errorf("bearer = %q", got.Bearer)
+		}
+	})
+
+	t.Run("header beats envelope", func(t *testing.T) {
+		e, reg := newAuthedStack(t)
+		var got mcpclient.Identity
+		capture(reg, "skill-x", "probe", &got)
+
+		ec := execCtxFor(`{"skill":"skill-x","tool":"probe","bearer":"envelope-token"}`)
+		ec.ServiceParams = a2asrv.NewServiceParams(map[string][]string{
+			"Authorization": {"Bearer header-token"},
+		})
+		dispatch(t, e, ec)
+		if got.Bearer != "header-token" {
+			t.Errorf("bearer = %q, want the header to win", got.Bearer)
+		}
+	})
+}
+
+// The conversation id rides along even with no bearer. It is what mcpclient
+// pools an MCP session by, which is how the card's promise that a bearer binds
+// to the conversation survives without this process storing one.
+func TestConversationIDRidesEvenUnauthenticated(t *testing.T) {
+	e, reg := newAuthedStack(t)
+	var got mcpclient.Identity
+	capture(reg, "skill-x", "probe", &got)
+
+	ec := execCtxFor(`{"skill":"skill-x","tool":"probe"}`)
+	ec.ContextID = "conv-1"
+	dispatch(t, e, ec)
+
+	if got.ContextID != "conv-1" {
+		t.Errorf("context id = %q", got.ContextID)
 	}
-	if got := resultField(t, resp, "owner"); got != "svp1headerowner" {
-		t.Errorf("owner = %q", got)
+	if got.Bearer != "" {
+		t.Errorf("invented a bearer: %q", got.Bearer)
+	}
+}
+
+func TestClientIPComesFromTheFirstForwardedHop(t *testing.T) {
+	e, reg := newAuthedStack(t)
+	var got mcpclient.Identity
+	capture(reg, "skill-x", "probe", &got)
+
+	ec := execCtxFor(`{"skill":"skill-x","tool":"probe"}`)
+	ec.ServiceParams = a2asrv.NewServiceParams(map[string][]string{
+		"X-Forwarded-For": {"203.0.113.7, 10.0.0.1"},
+	})
+	dispatch(t, e, ec)
+
+	if got.ClientIP != "203.0.113.7" {
+		t.Errorf("client ip = %q, want the first hop", got.ClientIP)
 	}
 }
 
 func TestDispatchRejectsSkillToolMismatch(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
+	e, _ := newAuthedStack(t)
 	if _, err := e.handle(context.Background(), execCtxFor(
 		`{"skill":"svpchain-market-data","tool":"whoami"}`)); err == nil ||
 		!strings.Contains(err.Error(), "belongs to skill") {
@@ -193,7 +144,7 @@ func TestDispatchRejectsSkillToolMismatch(t *testing.T) {
 }
 
 func TestDispatchRejectsUnknownTool(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
+	e, _ := newAuthedStack(t)
 	if _, err := e.handle(context.Background(), execCtxFor(
 		`{"skill":"svpchain-account","tool":"nope"}`)); err == nil ||
 		!strings.Contains(err.Error(), "unknown tool") {
@@ -202,22 +153,19 @@ func TestDispatchRejectsUnknownTool(t *testing.T) {
 }
 
 // probe is a stand-in identity for card assertions that are about structure,
-// not product identity. Holding it fixed keeps such a test from moving when
-// cmd/svpchain-perps-agent/card.go changes; the real identity is asserted
-// against the real golden over there.
+// not product identity.
 var probe = CardIdentity{
 	Name:        "card-probe",
 	Version:     "0.0.0",
 	Description: "Fixed identity, so this test reacts only to structural changes.",
 }
 
-// The card and the registry cannot drift: every skill the card advertises
-// carries exactly the registry's tools.
+// The card must advertise exactly what the executor will dispatch.
 func TestCardMatchesRegistry(t *testing.T) {
-	e, _, _ := newAuthedStack(t)
-	card := BuildAgentCardFor(probe, "http://example.test", e.registry)
+	reg := toolbridge.NewRemote(nil)
+	card := BuildAgentCardFor(probe, "https://agents.example.test", reg)
 
-	bySkill := e.registry.BySkill()
+	bySkill := reg.BySkill()
 	seen := map[string]bool{}
 	for _, sk := range card.Skills {
 		seen[sk.ID] = true
@@ -227,11 +175,9 @@ func TestCardMatchesRegistry(t *testing.T) {
 			}
 		}
 	}
-	for id := range bySkill {
-		if !seen[id] {
-			t.Errorf("registry skill %s missing from card", id)
+	for skill := range bySkill {
+		if !seen[skill] {
+			t.Errorf("registry serves skill %q that the card does not advertise", skill)
 		}
 	}
 }
-
-var _ = a2a.Message{} // keep the a2a import when helpers move

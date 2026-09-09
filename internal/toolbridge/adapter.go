@@ -13,12 +13,11 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/google/jsonschema-go/jsonschema"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Op is one invokable operation: a tool bound to the A2A skill it is
@@ -55,47 +54,16 @@ func schemaFor[In any]() *jsonschema.Schema {
 	return s
 }
 
-// handler is the uniform tool handler shape every internal/mcp/tools method has.
-type handler[In, Out any] func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error)
-
-// adapt wraps an MCP tool handler into an Op call. The nil CallToolRequest is
-// safe: every handler ignores it (verified across the tool package — identity
-// comes from ctx via tools.WithTenant / WithIP / WithSessionID).
-func adapt[In, Out any](h handler[In, Out]) Bound {
-	return Bound{InputSchema: schemaFor[In](), Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var in In
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &in); err != nil {
-				return nil, fmt.Errorf("decode args: %w", err)
-			}
-		}
-		res, out, err := h(ctx, nil, in)
-		if err != nil {
-			return nil, err
-		}
-		// Handlers report failures as errors, not IsError results; this guard
-		// exists so a future handler that does neither cannot smuggle an error
-		// result through as success.
-		if res != nil && res.IsError {
-			return nil, errors.New(resultText(res))
-		}
-		return out, nil
-	}}
-}
-
-func resultText(res *mcp.CallToolResult) string {
-	for _, c := range res.Content {
-		if t, ok := c.(*mcp.TextContent); ok && t.Text != "" {
-			return t.Text
-		}
-	}
-	return "tool refused"
-}
-
 // Registry maps tool names to operations and groups them by skill for the
 // Agent Card.
 type Registry struct {
 	ops map[string]Op
+
+	// Descriptions and schemas for proxied tools, fetched from the MCP server
+	// on first use by list_tools. Nil on a registry with no remote behind it.
+	infoMu        sync.Mutex
+	fetchToolInfo func(context.Context) (map[string]toolInfo, error)
+	toolInfo      map[string]toolInfo
 }
 
 func newRegistry() *Registry { return &Registry{ops: map[string]Op{}} }

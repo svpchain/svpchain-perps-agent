@@ -1,14 +1,12 @@
-// Package wire assembles the agent's dependency graph from its config: the
-// chain gRPC + CometBFT clients, the indexer client, the markets cache, the
-// self-service auth stores, the policy engine, and the MCP tool handlers the
-// A2A tool bridge dispatches into.
+// Package wire assembles the agent from its config: the connection to the
+// remote MCP server that implements its operations, the A2A operation registry
+// over that connection, and the read-layer indexer client.
 //
-// The body deliberately mirrors the wiring in svpchain-mcp's cmd/mcp-server:
-// same optional families, same all-or-nothing rules, same graceful
-// degradation. Drift between the two is a bug in whichever copied last — and
-// now that internal/mcp is a fork of that repo's lib/mcp rather than a
-// dependency on it (see internal/mcp/doc.go), nothing makes the drift fail
-// loudly. Check both when changing either.
+// It used to assemble a great deal more — chain gRPC and CometBFT clients, a
+// markets cache, tx builders, a policy engine, limits ledgers and the
+// self-service auth stores — because this agent ran a vendored copy of the MCP
+// server's handlers in-process. Those all live on the server now. What remains
+// here is a client and a registry.
 package wire
 
 import (
@@ -18,279 +16,126 @@ import (
 	"time"
 
 	"cosmossdk.io/log"
-	"google.golang.org/grpc"
-
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/auth"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/builder"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/chain"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/limits"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/markets"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/mcpcodec"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/policy"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/assistant"
 	"github.com/svpchain/svpchain-perps-agent/internal/config"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
 	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
 
-// App is the wired agent: everything the A2A server needs to serve requests,
-// plus the background caches it must run.
+// App is the wired agent: everything the A2A server needs to serve requests.
 type App struct {
-	Handlers *tools.Handlers      // the MCP tool handlers
-	Registry *toolbridge.Registry // A2A operation registry over them
-	Markets  *markets.Cache       // must Run(ctx); initial refresh failure is fatal
-	Tenants  *auth.DynamicTenantStore
-	Sessions *auth.SessionBearers
+	Registry *toolbridge.Registry
+	MCP      *mcpclient.Client
 	Indexer  *indexer.Client
-	GrpcConn *grpc.ClientConn
 	Logger   log.Logger
-
-	// MCP is the remote server this agent's operations are moving onto. Nil
-	// when no endpoint is configured, which is still the supported state: the
-	// handlers above serve every operation, and this connection only checks
-	// that the remote agrees with what the card advertises.
-	MCP *mcpclient.Client
 }
 
 // Close releases the app's long-lived connections.
 func (a *App) Close() {
-	if a.GrpcConn != nil {
-		_ = a.GrpcConn.Close()
-	}
 	if a.MCP != nil {
 		a.MCP.Close()
 	}
 }
 
-// Run starts the markets cache refresher and blocks until ctx is cancelled.
-// The cache must complete its initial refresh before build operations work,
-// and its Run fails fast when the chain is unreachable — surfacing a dead gRPC
-// endpoint at boot instead of on the first trade.
+// Run sweeps idle MCP sessions until ctx is cancelled.
+//
+// It used to run the markets cache and treat its failure as fatal, because a
+// stale cache meant build operations priced against stale metadata. The cache
+// is the server's problem now, and there is nothing here whose failure should
+// take the agent down.
 func (a *App) Run(ctx context.Context) error {
 	if a.MCP != nil {
-		go a.MCP.Run(ctx)
-		go a.checkMCPCatalog(ctx)
+		return a.MCP.Run(ctx)
 	}
-
-	errc := make(chan error, 1)
-	go func() { errc <- a.Markets.Run(ctx) }()
-	select {
-	case err := <-errc:
-		if err != nil && ctx.Err() == nil {
-			return err
-		}
-	case <-ctx.Done():
-	}
+	<-ctx.Done()
 	return nil
 }
 
-// checkMCPCatalog reports whether the configured MCP server serves the surface
-// this agent advertises.
+// CheckCatalog verifies the MCP server serves the surface this agent's card
+// advertises.
 //
-// ★ Deliberately not fatal, and deliberately not on the boot path. Nothing
-// dispatches to the remote yet — every operation still runs on the handlers in
-// internal/mcp — so a server that is down or behind must not stop this agent
-// from serving. What it buys is that a wrong endpoint, or a server that has
-// moved on, is a line in the log now rather than a surprise when dispatch
-// moves. It becomes a boot failure then, because at that point a missing tool
-// is an operation the card promises and nothing can answer.
-func (a *App) checkMCPCatalog(ctx context.Context) {
+// ★ Fatal, and on the boot path, which it was not while dispatch ran locally.
+// Every advertised operation is now one call to that server, so a tool the
+// server does not serve is an operation the card promises and nothing can
+// answer. Better to refuse to start than to serve a card that lies.
+func (a *App) CheckCatalog(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	remote, err := a.MCP.ListTools(ctx)
 	if err != nil {
-		a.Logger.Error("mcp server unreachable; its catalog was not checked",
-			"endpoint", a.MCP.Endpoint(), "error", err)
-		return
+		return fmt.Errorf("read the MCP server's catalog at %s: %w", a.MCP.Endpoint(), err)
 	}
 	names := make([]string, 0, len(remote))
 	for _, t := range remote {
 		names = append(names, t.Name)
 	}
-
-	diff := a.Registry.DiffCatalog(names)
-	if diff.OK() {
-		a.Logger.Info("mcp server catalog matches the advertised surface",
-			"endpoint", a.MCP.Endpoint(), "tools", len(names))
-		return
+	if diff := a.Registry.DiffCatalog(names); !diff.OK() {
+		return fmt.Errorf(
+			"the MCP server at %s does not serve the advertised surface: missing %v; it also serves %v, which this agent does not bridge",
+			a.MCP.Endpoint(), diff.Missing, diff.Extra)
 	}
-	a.Logger.Error("mcp server catalog disagrees with the advertised surface",
-		"endpoint", a.MCP.Endpoint(),
-		"advertised_but_not_served", diff.Missing,
-		"served_but_not_bridged", diff.Extra)
+	a.Logger.Info("mcp catalog matches the advertised surface",
+		"endpoint", a.MCP.Endpoint(), "tools", len(names))
+	return nil
 }
 
-// dynamicTenantAdapter converts auth.TenantRecord into policy.TenantPolicy so
-// the policy engine can resolve auto-issued tenants; kept here so auth never
-// imports policy (mirrors the mcp-server adapter).
-type dynamicTenantAdapter struct{ store *auth.DynamicTenantStore }
+// Build wires the configuration into a ready-to-run App.
+func Build(ctx context.Context, cfg *config.Config) (*App, error) {
+	logger := log.NewLogger(os.Stderr).With("module", "perps-agent")
 
-func (a dynamicTenantAdapter) LookupTenantPolicy(tenantID string) (policy.TenantPolicy, bool) {
-	rec, err := a.store.LookupByTenantID(tenantID)
-	if err != nil {
-		return policy.TenantPolicy{}, false
-	}
-	return policy.TenantPolicy{
-		TenantID:           rec.TenantID,
-		Owner:              rec.Owner,
-		AllowedSubaccounts: rec.AllowedSubaccounts,
-		KillSwitch:         rec.KillSwitch,
-	}, true
-}
-
-// BuildProfile wires the configuration into a ready-to-run App registering
-// only the profile's operation families.
-func BuildProfile(ctx context.Context, cfg *config.Config, p Profile) (*App, error) {
-	logger := log.NewLogger(os.Stderr).With("module", "remote-agent", "profile", p.Name)
-
-	grpcConn, err := chain.Dial(ctx, cfg.DEXChain.GrpcAddr)
-	if err != nil {
-		return nil, fmt.Errorf("dial chain gRPC: %w", err)
-	}
-	encCfg := mcpcodec.GetEncodingConfig()
-
-	chainDeps := tools.ChainDeps{
-		Account:         chain.NewAccountClient(grpcConn, encCfg.InterfaceRegistry),
-		Broadcast:       chain.NewBroadcastClient(grpcConn),
-		ClobQuery:       chain.NewClobQueryClient(grpcConn),
-		PerpetualsQuery: chain.NewPerpetualsQueryClient(grpcConn),
-		SubaccountQuery: chain.NewSubaccountQueryClient(grpcConn),
-		BankQuery:       chain.NewBankQueryClient(grpcConn),
-	}
-	cometClient, err := chain.NewCometBftClient(cfg.DEXChain.CometRPCURL)
-	if err != nil {
-		grpcConn.Close()
-		return nil, fmt.Errorf("cometbft client: %w", err)
-	}
-	chainDeps.CometBft = cometClient
-
-	idx := indexer.NewClient(cfg.DEXChain.IndexerBaseURL, indexer.Options{})
-	mkts := markets.NewCache(chainDeps.ClobQuery, chainDeps.PerpetualsQuery, time.Duration(cfg.Cache.MarketsRefresh), logger)
-
-	limitsCfg := limits.Config{
-		DepositMaxUSDC:       cfg.Limits.DepositMaxUSDC,
-		WithdrawMaxUSDC:      cfg.Limits.WithdrawMaxUSDC,
-		TransferMaxUSDC:      cfg.Limits.TransferMaxUSDC,
-		DailyWithdrawCapUSDC: cfg.Limits.DailyWithdrawCapUSDC,
-	}
-	withdrawLedger := limits.NewMemoryLedger(limitsCfg.DailyWithdrawCapUSDC, nil)
-	transferOut, err := limits.LoadMemoryTransferOutStore(cfg.TransferOutCapPath, nil, func(err error) {
-		logger.Error("transfer-out cap persistence failed", "error", err)
+	mcpConn, err := mcpclient.New(mcpclient.Config{
+		Endpoint:    cfg.MCP.Endpoint,
+		Name:        "svpchain-perps-agent",
+		Version:     "perps",
+		CallTimeout: time.Duration(cfg.MCP.CallTimeout),
 	})
 	if err != nil {
-		grpcConn.Close()
-		return nil, fmt.Errorf("load transfer-out cap state: %w", err)
+		return nil, fmt.Errorf("mcp client: %w", err)
 	}
 
-	// Self-service auth state: in-memory + TTL-bounded, same defaults as the
-	// MCP server (auto-issued tenants get subaccounts 0..9).
-	nonceStore := auth.NewNonceStore(auth.DefaultChallengeTTL, nil)
-	dynamicTenants := auth.NewDynamicTenantStore(auth.DynamicTenantStoreConfig{
-		BearerTTL:                 auth.DefaultBearerTTL,
-		DefaultAllowedSubaccounts: []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
-	}, nil)
-	ipLimit := auth.NewIPRateLimiter(auth.DefaultIPChallengeRate, auth.DefaultIPChallengeWindow, nil)
-	sessionBearers := auth.NewSessionBearers(auth.DefaultBearerTTL, nil)
+	registry := toolbridge.NewRemote(mcpConn)
 
-	// Bearer-minted tenants ("auto-…") resolve through the engine's dynamic
-	// fallback slot.
-	policyEngine := policy.NewEngine(nil)
-	policyEngine.SetDynamicSource(dynamicTenantAdapter{store: dynamicTenants})
-
-	deps := tools.Deps{
-		Chain:             chainDeps,
-		Indexer:           idx,
-		Markets:           mkts,
-		Builder:           builder.NewAssembler(cfg.DEXChain.ID, cfg.Fee.Denom, cfg.Fee.Amount, cfg.Fee.GasLimit),
-		Policy:            policyEngine,
-		Auditor:           policy.NewStdoutAuditor(),
-		Idempotency:       policy.NewIdempotency(0),
-		RateLimit:         policy.NewRateLimiter(0, 0),
-		Limits:            limitsCfg,
-		WithdrawLedger:    withdrawLedger,
-		TransferOut:       transferOut,
-		NonceStore:        nonceStore,
-		DynamicTenants:    dynamicTenants,
-		IPChallengeLimit:  ipLimit,
-		SessionBearers:    sessionBearers,
-		Logger:            logger,
-		InterfaceRegistry: encCfg.InterfaceRegistry,
-		BroadcastMode:     cfg.BroadcastMode,
-	}
-	handlers := tools.New(cfg.DEXChain.ID, deps)
-
-	registry := toolbridge.NewEmpty()
-
-	p.Register(registry, handlers)
-
-	// Optional: an endpoint here is dialled lazily, so a server that is down
-	// costs the agent nothing until something asks it a question.
-	var mcpConn *mcpclient.Client
-	if cfg.MCP.Endpoint != "" {
-		mcpConn, err = mcpclient.New(mcpclient.Config{
-			Endpoint:    cfg.MCP.Endpoint,
-			Name:        "svpchain-perps-agent",
-			Version:     p.Name,
-			CallTimeout: time.Duration(cfg.MCP.CallTimeout),
-		})
-		if err != nil {
-			grpcConn.Close()
-			return nil, fmt.Errorf("mcp client: %w", err)
-		}
+	// The model-driven skill, where the operator configured one.
+	provider, why := buildProvider(cfg)
+	if provider != nil {
+		registry.RegisterAssistant(assistant.New(provider, mcpConn, assistant.Config{
+			MaxIterations: cfg.Assistant.MaxIterations,
+			MaxToolCalls:  cfg.Assistant.MaxToolCalls,
+			Timeout:       time.Duration(cfg.Assistant.Timeout),
+		}))
+		logger.Info("assistant skill enabled", "provider", provider.Name(), "model", provider.Model())
+	} else {
+		logger.Info("assistant skill not served", "reason", why)
 	}
 
-	// The model-driven skill, when the operator has configured one. It needs
-	// the MCP server (that is where its tools are) and a model provider, and
-	// it is left unregistered without both — so the card advertises it exactly
-	// where it works.
-	if mcpConn != nil {
-		provider, why := buildProvider(cfg)
-		switch {
-		case provider != nil:
-			registry.RegisterAssistant(assistant.New(provider, mcpConn, assistant.Config{
-				MaxIterations: cfg.Assistant.MaxIterations,
-				MaxToolCalls:  cfg.Assistant.MaxToolCalls,
-				Timeout:       time.Duration(cfg.Assistant.Timeout),
-			}))
-			logger.Info("assistant skill enabled",
-				"provider", provider.Name(), "model", provider.Model())
-		default:
-			logger.Info("assistant skill not served", "reason", why)
-		}
-	}
-
-	return &App{
-		Handlers: handlers,
+	app := &App{
 		Registry: registry,
-		Markets:  mkts,
-		Tenants:  dynamicTenants,
-		Sessions: sessionBearers,
-		Indexer:  idx,
-		GrpcConn: grpcConn,
-		Logger:   logger,
 		MCP:      mcpConn,
-	}, nil
+		Indexer:  indexer.NewClient(cfg.DEXChain.IndexerBaseURL, indexer.Options{}),
+		Logger:   logger,
+	}
+	if err := app.CheckCatalog(ctx); err != nil {
+		app.Close()
+		return nil, err
+	}
+	return app, nil
 }
 
 // buildProvider constructs the planner's model API from config, or explains
-// why it cannot. A missing key is the ordinary case — the skill is opt-in —
-// so it returns a reason rather than an error, and the agent serves everything
-// else regardless.
+// why it cannot. A missing key is the ordinary case — the skill is opt-in — so
+// it returns a reason rather than an error.
 func buildProvider(cfg *config.Config) (assistant.Provider, string) {
 	switch cfg.Assistant.Provider {
 	case "", assistant.ProviderAnthropic:
 		if os.Getenv("ANTHROPIC_API_KEY") == "" {
 			return nil, "ANTHROPIC_API_KEY is unset"
 		}
-		// The SDK reads ANTHROPIC_BASE_URL itself; an explicit base_url wins,
-		// which is what lets one config file name the endpoint outright.
 		var opts []option.RequestOption
 		if cfg.Assistant.BaseURL != "" {
 			opts = append(opts, option.WithBaseURL(cfg.Assistant.BaseURL))

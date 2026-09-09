@@ -35,7 +35,7 @@ func StartFullFor(ctx context.Context, cfg *config.Config, app *wire.App, ident 
 	executor := NewFullExecutor(
 		market,
 		app.Registry,
-		&AuthResolver{Tenants: app.Tenants, Sessions: app.Sessions},
+		&AuthResolver{},
 	)
 
 	card := BuildAgentCardFor(ident, cfg.PublicURL, app.Registry)

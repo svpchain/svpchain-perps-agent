@@ -9,7 +9,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/mcp/indexer"
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 
 	"github.com/svpchain/svpchain-perps-agent/internal/marketdata"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
@@ -49,9 +48,7 @@ func (fakeReader) GetHistoricalFunding(context.Context, string) (*indexer.Histor
 // {"skill":…,"query":…} path these tests exercise is answered from the service
 // before the registry is consulted, so it behaves the same either way.
 func newTestExecutor() *Executor {
-	reg := toolbridge.NewEmpty()
-	reg.RegisterMarketData(&tools.Handlers{})
-	return NewFullExecutor(marketdata.NewService(fakeReader{}), reg, nil)
+	return NewFullExecutor(marketdata.NewService(fakeReader{}), toolbridge.NewRemote(nil), nil)
 }
 
 func TestHandleMarketDataQueries(t *testing.T) {

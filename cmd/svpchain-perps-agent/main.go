@@ -44,7 +44,7 @@ func run(ctx context.Context, configPath string) error {
 	if err != nil {
 		return err
 	}
-	app, err := wire.BuildProfile(ctx, cfg, wire.PerpsProfile)
+	app, err := wire.Build(ctx, cfg)
 	if err != nil {
 		return err
 	}

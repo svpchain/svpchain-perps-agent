@@ -1,10 +1,6 @@
 package toolbridge
 
-import (
-	"testing"
-
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
-)
+import "testing"
 
 // The bridged surface is exactly the DEX server's catalog, so a diff against
 // the real tool list must come back clean. This is the check the agent runs at
@@ -22,7 +18,7 @@ func TestDiffCatalogAgreesWithTheDexServer(t *testing.T) {
 		"set_transfer_out_cap", "whoami",
 	}
 
-	d := New(&tools.Handlers{}).DiffCatalog(dexMCPTools)
+	d := NewRemote(nil).DiffCatalog(dexMCPTools)
 	if !d.OK() {
 		t.Errorf("surfaces disagree: missing=%v extra=%v", d.Missing, d.Extra)
 	}
@@ -40,7 +36,8 @@ func TestDiffCatalogIgnoresAgentOwnedTools(t *testing.T) {
 
 func TestDiffCatalogReportsBothDirections(t *testing.T) {
 	r := NewEmpty()
-	r.RegisterBroadcast(&tools.Handlers{})
+	r.add(SkillBroadcast, "broadcast_signed_tx", Bound{})
+	r.add(SkillBroadcast, "get_tx_status", Bound{})
 
 	d := r.DiffCatalog([]string{"broadcast_signed_tx", "a_tool_we_do_not_bridge"})
 	if len(d.Missing) != 1 || d.Missing[0] != "get_tx_status" {

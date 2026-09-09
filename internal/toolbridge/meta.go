@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/svpchain/svpchain-perps-agent/internal/mcpclient"
 )
 
 // The A2A surface has no equivalent of MCP's tools/list: a caller that reaches
@@ -33,10 +33,18 @@ type ListToolsInput struct {
 type ToolDescriptor struct {
 	Skill string `json:"skill"`
 	Tool  string `json:"tool"`
+	// Description is what the tool does, as published by whatever implements
+	// it. Empty for an operation whose source publishes none.
+	Description string `json:"description,omitempty"`
+
 	// InputSchema is the JSON Schema of the tool's args object. Omitted for an
 	// operation registered without a typed input, which a caller should treat
 	// as an object of unspecified shape.
-	InputSchema *jsonschema.Schema `json:"input_schema,omitempty"`
+	//
+	// Typed as any because the two sources differ: this agent's own tools
+	// reflect a Go type, and a proxied tool's schema is the MCP server's own
+	// JSON, passed through rather than re-derived.
+	InputSchema any `json:"input_schema,omitempty"`
 }
 
 // ListToolsOutput is the list_tools reply, sorted by tool name.
@@ -50,29 +58,81 @@ type ListToolsOutput struct {
 func (r *Registry) RegisterMeta() {
 	r.add(SkillMeta, "list_tools", Bound{
 		InputSchema: schemaFor[ListToolsInput](),
-		Call: func(_ context.Context, raw json.RawMessage) (any, error) {
+		Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var in ListToolsInput
 			if len(raw) > 0 {
 				if err := json.Unmarshal(raw, &in); err != nil {
 					return nil, err
 				}
 			}
-			return r.listTools(in.Skill), nil
+			return r.listTools(ctx, in.Skill), nil
 		},
 	})
 }
 
-func (r *Registry) listTools(skill string) ListToolsOutput {
+func (r *Registry) listTools(ctx context.Context, skill string) ListToolsOutput {
+	remote := r.remoteToolInfo(ctx)
+
 	out := ListToolsOutput{Tools: []ToolDescriptor{}}
 	for _, op := range r.List() {
 		if skill != "" && op.Skill != skill {
 			continue
 		}
-		out.Tools = append(out.Tools, ToolDescriptor{
-			Skill:       op.Skill,
-			Tool:        op.Tool,
-			InputSchema: op.InputSchema,
-		})
+		d := ToolDescriptor{Skill: op.Skill, Tool: op.Tool}
+		if op.InputSchema != nil {
+			d.InputSchema = op.InputSchema
+		}
+		// A proxied tool's description and schema come from the server that
+		// implements it, so the prose a caller reads is the prose written next
+		// to the handler rather than a copy free to drift.
+		if info, ok := remote[op.Tool]; ok {
+			d.Description = info.Description
+			if info.InputSchema != nil {
+				d.InputSchema = info.InputSchema
+			}
+		}
+		out.Tools = append(out.Tools, d)
 	}
 	return out
+}
+
+// toolInfo is what an implementing server publishes about one tool.
+type toolInfo struct {
+	Description string
+	InputSchema any
+}
+
+// useRemoteToolInfo makes list_tools serve the MCP server's own descriptions
+// and schemas. Fetched on first use and cached; a failure is not cached and
+// simply leaves the extra detail out, since the tool list itself is local and
+// still correct without it.
+func (r *Registry) useRemoteToolInfo(mcp *mcpclient.Client) {
+	r.fetchToolInfo = func(ctx context.Context) (map[string]toolInfo, error) {
+		tools, err := mcp.ListTools(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]toolInfo, len(tools))
+		for _, t := range tools {
+			out[t.Name] = toolInfo{Description: t.Description, InputSchema: t.InputSchema}
+		}
+		return out, nil
+	}
+}
+
+func (r *Registry) remoteToolInfo(ctx context.Context) map[string]toolInfo {
+	if r.fetchToolInfo == nil {
+		return nil
+	}
+	r.infoMu.Lock()
+	defer r.infoMu.Unlock()
+	if r.toolInfo != nil {
+		return r.toolInfo
+	}
+	info, err := r.fetchToolInfo(ctx)
+	if err != nil {
+		return nil
+	}
+	r.toolInfo = info
+	return info
 }

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
 )
 
@@ -16,7 +15,7 @@ import (
 // These two tests pin both halves of that.
 func TestCardOmitsTheAssistantWhenItIsNotRegistered(t *testing.T) {
 	card := BuildAgentCardFor(CardIdentity{Name: "a", Version: "1"}, "https://x.test",
-		toolbridge.New(&tools.Handlers{}))
+		toolbridge.NewRemote(nil))
 
 	for _, s := range card.Skills {
 		if s.ID == toolbridge.SkillAssistant {
@@ -26,7 +25,7 @@ func TestCardOmitsTheAssistantWhenItIsNotRegistered(t *testing.T) {
 }
 
 func TestCardAdvertisesTheAssistantWhenRegistered(t *testing.T) {
-	r := toolbridge.New(&tools.Handlers{})
+	r := toolbridge.NewRemote(nil)
 	r.RegisterAssistant(nil) // the card reads names, never calls the operation
 
 	card := BuildAgentCardFor(CardIdentity{Name: "a", Version: "1"}, "https://x.test", r)

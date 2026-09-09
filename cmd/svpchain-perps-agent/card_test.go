@@ -8,11 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/svpchain/svpchain-perps-agent/internal/mcp/tools"
-
 	"github.com/svpchain/svpchain-perps-agent/internal/a2aserver"
 	"github.com/svpchain/svpchain-perps-agent/internal/toolbridge"
-	"github.com/svpchain/svpchain-perps-agent/internal/wire"
 )
 
 // ★ The card this agent serves is hashed into its on-chain registration, and a
@@ -26,8 +23,7 @@ import (
 var updateGoldens = flag.Bool("update-goldens", false, "rewrite the card golden")
 
 func TestCardMatchesGolden(t *testing.T) {
-	reg := toolbridge.NewEmpty()
-	wire.PerpsProfile.Register(reg, &tools.Handlers{})
+	reg := toolbridge.NewRemote(nil)
 
 	got, err := json.Marshal(a2aserver.BuildAgentCardFor(identity, "https://agents.example.test/perps", reg))
 	if err != nil {
@@ -57,8 +53,7 @@ func TestCardMatchesGolden(t *testing.T) {
 // in the registry named in its skill's description, and no skill on the card
 // that the registry does not serve.
 func TestCardMatchesRegistry(t *testing.T) {
-	reg := toolbridge.NewEmpty()
-	wire.PerpsProfile.Register(reg, &tools.Handlers{})
+	reg := toolbridge.NewRemote(nil)
 	card := a2aserver.BuildAgentCardFor(identity, "https://agents.example.test/perps", reg)
 
 	bySkill := reg.BySkill()

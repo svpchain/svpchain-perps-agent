@@ -102,11 +102,10 @@ type AssistantConfig struct {
 // operations — svpchain-dex-mcp, which owns the chain clients, the tx
 // builders, the policy engine and the tenant stores this agent is moving off.
 //
-// Optional today: the agent still serves every operation from the handlers in
-// internal/mcp, and an endpoint set here is dialled at boot to check that the
-// remote's catalog matches the surface this agent advertises. Configuring it
-// early is how an operator finds out the URL is wrong before it is load
-// bearing. It becomes required when dispatch moves.
+// ★ Required. Every operation this agent advertises is one call to that
+// server, so without it the agent has nothing to serve. It was optional while
+// a vendored copy of the server ran in-process; dispatch has since moved, and
+// the endpoint went from a diagnostic to the whole dependency.
 type MCPConfig struct {
 	// Endpoint is the server's Streamable HTTP URL. svpchain-dex-mcp serves
 	// MCP at the root of its listener, so this is an origin and not a path.
@@ -211,6 +210,9 @@ func (c *Config) Validate() error {
 	}
 	if c.ListenAddr == "" {
 		return fmt.Errorf("listen_addr is required")
+	}
+	if c.MCP.Endpoint == "" {
+		return fmt.Errorf("mcp.endpoint is required: every operation this agent serves is a call to that server")
 	}
 	if err := c.Fee.validate(); err != nil {
 		return err

@@ -27,7 +27,14 @@ dex_chain.grpc_addr        = "127.0.0.1:9090"
 dex_chain.comet_rpc_url    = "http://127.0.0.1:26657"
 dex_chain.indexer_base_url = "http://127.0.0.1:3002"
 listen_addr                = ":8081"
+mcp.endpoint               = "https://mcp.example.test/"
 `
+
+// withoutMCP is the minimal fixture minus its endpoint, for the cases that
+// supply their own [mcp] table or assert the field is required.
+func withoutMCP() string {
+	return strings.ReplaceAll(minimal, `mcp.endpoint               = "https://mcp.example.test/"`+"\n", "")
+}
 
 func TestLoadMinimalAppliesDefaults(t *testing.T) {
 	cfg, err := Load(writeConfig(t, minimal))
@@ -105,7 +112,7 @@ amount = "not-a-number"
 // operations run on. It is optional while the agent still answers from its own
 // handlers, so both states have to load.
 func TestMCPSectionLoads(t *testing.T) {
-	cfg, err := Load(writeConfig(t, minimal+`
+	cfg, err := Load(writeConfig(t, withoutMCP()+`
 [mcp]
 endpoint     = "https://dex-mcp-testnet.svpchain.org/"
 call_timeout = "45s"
@@ -121,13 +128,16 @@ call_timeout = "45s"
 	}
 }
 
-func TestMCPSectionIsOptional(t *testing.T) {
-	cfg, err := Load(writeConfig(t, minimal))
-	if err != nil {
-		t.Fatalf("a config with no [mcp] section must still load: %v", err)
+// ★ Every operation is a call to the MCP server, so a config without one
+// describes an agent with nothing to serve. This was optional while a vendored
+// copy of that server ran in-process.
+func TestMCPEndpointIsRequired(t *testing.T) {
+	_, err := Load(writeConfig(t, withoutMCP()))
+	if err == nil {
+		t.Fatal("a config with no mcp.endpoint was accepted")
 	}
-	if cfg.MCP.Endpoint != "" {
-		t.Errorf("endpoint defaulted to %q; it must stay empty so the agent can tell configured from not", cfg.MCP.Endpoint)
+	if !strings.Contains(err.Error(), "mcp.endpoint") {
+		t.Errorf("the error does not name the missing field: %v", err)
 	}
 }
 
