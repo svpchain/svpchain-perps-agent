@@ -2,12 +2,28 @@ package toolbridge
 
 import "sort"
 
-// agentOwnedTools are operations this agent implements itself, with no twin on
-// any MCP server. They are excluded from a catalog comparison because a remote
-// that does not serve them is not drifting — it was never meant to.
-var agentOwnedTools = map[string]bool{
-	"list_tools":          true,
-	EstimateClearingPrice: true,
+// isProxied reports whether a tool is one the MCP server implements, as
+// opposed to one this agent implements itself.
+//
+// ★ Derived from remoteOps rather than listed. It was a hand-kept list of the
+// agent's own tools — list_tools, estimate_clearing_price — and "ask" was
+// never added to it, so an agent with the assistant configured refused to
+// start: the boot check read the assistant's own tool as an operation the card
+// promised and the server could not serve. It crash-looped, and only on a
+// deployment that had configured a model, which is why nothing here saw it.
+//
+// A second list of which tools are proxied was always going to drift from the
+// first. remoteOps is the one that decides what gets proxied, so it is the one
+// that decides what a catalog comparison covers.
+func isProxied(tool string) bool {
+	for _, tools := range remoteOps {
+		for _, name := range tools {
+			if name == tool {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // CatalogDiff is how a remote MCP server's tool list differs from the surface
@@ -37,7 +53,7 @@ func (r *Registry) DiffCatalog(remote []string) CatalogDiff {
 	var d CatalogDiff
 	local := map[string]bool{}
 	for _, op := range r.List() {
-		if agentOwnedTools[op.Tool] {
+		if !isProxied(op.Tool) {
 			continue
 		}
 		local[op.Tool] = true

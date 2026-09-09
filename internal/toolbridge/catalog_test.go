@@ -5,8 +5,10 @@ import "testing"
 // The bridged surface is exactly the DEX server's catalog, so a diff against
 // the real tool list must come back clean. This is the check the agent runs at
 // boot, run here against the names svpchain-dex-mcp actually serves.
-func TestDiffCatalogAgreesWithTheDexServer(t *testing.T) {
-	dexMCPTools := []string{
+// dexMCPToolNames is the catalog svpchain-dex-mcp actually serves, checked
+// against the live deployment.
+func dexMCPToolNames() []string {
+	return []string{
 		"auth_challenge", "auth_verify", "broadcast_signed_tx", "build_bank_send",
 		"build_batch_cancel_orders", "build_cancel_order", "build_deposit_to_subaccount",
 		"build_place_conditional_order", "build_place_limit_order", "build_place_market_order",
@@ -17,8 +19,10 @@ func TestDiffCatalogAgreesWithTheDexServer(t *testing.T) {
 		"get_transfer_out_cap", "get_transfers", "get_tx_status", "list_markets",
 		"set_transfer_out_cap", "whoami",
 	}
+}
 
-	d := NewRemote(nil).DiffCatalog(dexMCPTools)
+func TestDiffCatalogAgreesWithTheDexServer(t *testing.T) {
+	d := NewRemote(nil).DiffCatalog(dexMCPToolNames())
 	if !d.OK() {
 		t.Errorf("surfaces disagree: missing=%v extra=%v", d.Missing, d.Extra)
 	}
@@ -48,5 +52,40 @@ func TestDiffCatalogReportsBothDirections(t *testing.T) {
 	}
 	if d.OK() {
 		t.Error("OK() true despite a diff in both directions")
+	}
+}
+
+// ★ The catalog check must be clean with EVERY skill registered, including the
+// conditional ones. It was not: "ask" is the assistant's own tool, and the
+// hand-kept list of agent-owned tools never gained it, so an agent with a
+// model configured refused to start — the boot check read the assistant's own
+// tool as an operation the card promised and the server could not serve.
+//
+// It crash-looped, and only where the assistant was configured, so every test
+// and every local run here was clean. This registers the whole surface, which
+// is the state a real deployment with a model key is in.
+func TestDiffCatalogIsCleanWithEverySkillRegistered(t *testing.T) {
+	r := NewRemote(nil)
+	r.RegisterAssistant(nil)
+
+	d := r.DiffCatalog(dexMCPToolNames())
+	if !d.OK() {
+		t.Errorf("a fully-registered agent does not match the server it proxies: "+
+			"advertised-but-not-served=%v served-but-not-bridged=%v", d.Missing, d.Extra)
+	}
+}
+
+// Every tool this agent implements itself must be excluded from the
+// comparison, and every proxied one included.
+func TestOnlyProxiedToolsAreComparedAgainstTheServer(t *testing.T) {
+	for _, own := range []string{"list_tools", EstimateClearingPrice, "ask"} {
+		if isProxied(own) {
+			t.Errorf("%s is this agent's own operation but is compared against the server", own)
+		}
+	}
+	for _, proxied := range []string{"list_markets", "get_subaccount", "broadcast_signed_tx"} {
+		if !isProxied(proxied) {
+			t.Errorf("%s is proxied but excluded from the comparison", proxied)
+		}
 	}
 }

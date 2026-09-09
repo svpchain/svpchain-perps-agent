@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"cosmossdk.io/log"
@@ -74,9 +75,15 @@ func (a *App) CheckCatalog(ctx context.Context) error {
 		names = append(names, t.Name)
 	}
 	if diff := a.Registry.DiffCatalog(names); !diff.OK() {
-		return fmt.Errorf(
-			"the MCP server at %s does not serve the advertised surface: missing %v; it also serves %v, which this agent does not bridge",
-			a.MCP.Endpoint(), diff.Missing, diff.Extra)
+		var parts []string
+		if len(diff.Missing) > 0 {
+			parts = append(parts, fmt.Sprintf("it does not serve %v, which this agent advertises", diff.Missing))
+		}
+		if len(diff.Extra) > 0 {
+			parts = append(parts, fmt.Sprintf("it serves %v, which this agent does not bridge", diff.Extra))
+		}
+		return fmt.Errorf("the MCP server at %s does not match the advertised surface: %s",
+			a.MCP.Endpoint(), strings.Join(parts, "; "))
 	}
 	a.Logger.Info("mcp catalog matches the advertised surface",
 		"endpoint", a.MCP.Endpoint(), "tools", len(names))
